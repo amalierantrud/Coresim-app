@@ -13,7 +13,7 @@ from splunklib.searchcommands import Configuration, Option, ReportingCommand, di
 from otdiag import build_baseline, minute_stats_from_row
 
 
-@Configuration(requires_preop=False)
+@Configuration(requires_preop=False, required_fields=["_time", "src_ip", "dest_ip", "proto", "packets", "bytes", "dest_ports", "syn"])
 class OtBaseline(ReportingCommand, c.Buffered):
     min_minutes = Option(require=False, default=10, validate=validators.Integer(1))
 

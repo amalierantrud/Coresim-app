@@ -19,7 +19,7 @@ def _num(v):
         return None
 
 
-@Configuration()
+@Configuration(required_fields=["_time", "rule", "src_ip", "dest_ip", "proto", "value", "expected", "z", "detail", "kind", "host_ip", "user", "suspicious"])
 class OtDiagnose(EventingCommand, c.Buffered):
     gap = Option(require=False, default=180, validate=validators.Integer(0))
 

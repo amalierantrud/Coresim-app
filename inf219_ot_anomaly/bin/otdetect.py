@@ -13,7 +13,7 @@ from splunklib.searchcommands import Configuration, EventingCommand, Option, dis
 from otdiag import Baseline, detect, minute_stats_from_row
 
 
-@Configuration()
+@Configuration(required_fields=["_time", "src_ip", "dest_ip", "proto", "packets", "bytes", "dest_ports", "syn"])
 class OtDetect(EventingCommand, c.Buffered):
     k = Option(require=False, default=4.0, validate=validators.Float(0))
     scan_ports = Option(require=False, default=20, validate=validators.Integer(1))
