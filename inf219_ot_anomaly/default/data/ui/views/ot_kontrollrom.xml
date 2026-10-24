@@ -1,0 +1,267 @@
+<dashboard version="2" theme="dark">
+  <label>Kontrollrom</label>
+  <description>Live status for coresim</description>
+  <definition><![CDATA[
+{
+  "title": "Kontrollrom – coresim",
+  "description": "Live status. Oppdateres hvert 30. sekund.",
+  "inputs": {
+    "input_tr": {
+      "type": "input.timerange",
+      "title": "Tidsrom",
+      "options": {
+        "token": "tr",
+        "defaultValue": "-60m,now"
+      }
+    }
+  },
+  "defaults": {
+    "dataSources": {
+      "ds.search": {
+        "options": {
+          "queryParameters": {
+            "earliest": "$tr.earliest$",
+            "latest": "$tr.latest$"
+          }
+        }
+      }
+    }
+  },
+  "dataSources": {
+    "ds_inc": {
+      "type": "ds.search",
+      "options": {
+        "query": "`ot_incidents` | dedup diagnose target _time | eval Tid=strftime(_time,\"%H:%M\") | sort - _time",
+        "refresh": "30s",
+        "refreshType": "delay"
+      }
+    },
+    "ds_active": {
+      "type": "ds.chain",
+      "options": {
+        "extend": "ds_inc",
+        "query": "| where _time >= relative_time(now(), \"-15m\") | stats count as aktive"
+      }
+    },
+    "ds_crit": {
+      "type": "ds.chain",
+      "options": {
+        "extend": "ds_inc",
+        "query": "| where severity=\"kritisk\" | stats count as kritiske"
+      }
+    },
+    "ds_tbl": {
+      "type": "ds.chain",
+      "options": {
+        "extend": "ds_inc",
+        "query": "| table Tid severity diagnose target explanation | rename severity as Alvorlighet diagnose as Diagnose target as \"Mål\" explanation as Forklaring"
+      }
+    },
+    "ds_traffic": {
+      "type": "ds.search",
+      "options": {
+        "query": "`ot_summary` | timechart span=1m sum(packets) as pakker by src_ip useother=f limit=15",
+        "refresh": "30s",
+        "refreshType": "delay"
+      }
+    },
+    "ds_alerts": {
+      "type": "ds.search",
+      "options": {
+        "query": "`ot_alerts` | timechart span=1m count by rule",
+        "refresh": "30s",
+        "refreshType": "delay"
+      }
+    }
+  },
+  "visualizations": {
+    "viz_active": {
+      "type": "splunk.singlevalue",
+      "title": "Hendelser siste 15 min",
+      "dataSources": {
+        "primary": "ds_active"
+      },
+      "options": {
+        "majorColor": "> majorValue | rangeValue(cols)"
+      },
+      "context": {
+        "cols": [
+          {
+            "to": 1,
+            "value": "#1E7B4B"
+          },
+          {
+            "from": 1,
+            "value": "#B3261E"
+          }
+        ]
+      }
+    },
+    "viz_crit": {
+      "type": "splunk.singlevalue",
+      "title": "Kritiske i valgt tidsrom",
+      "dataSources": {
+        "primary": "ds_crit"
+      },
+      "options": {
+        "majorColor": "> majorValue | rangeValue(cols)"
+      },
+      "context": {
+        "cols": [
+          {
+            "to": 1,
+            "value": "#1E7B4B"
+          },
+          {
+            "from": 1,
+            "value": "#B3261E"
+          }
+        ]
+      }
+    },
+    "viz_help": {
+      "type": "splunk.markdown",
+      "options": {
+        "markdown": "**Kjeden:** pakker → *OT 1* oppsummering → *OT 2* `otdetect` → *OT 3* `otdiagnose`. Tomt her? Sjekk at de tre planlagte søkene er slått på og at det kommer pakker.",
+        "fontSize": "small"
+      }
+    },
+    "viz_tbl": {
+      "type": "splunk.table",
+      "title": "Hendelser (diagnose fra Python)",
+      "dataSources": {
+        "primary": "ds_tbl"
+      },
+      "options": {
+        "count": 8,
+        "columnFormat": {
+          "Alvorlighet": {
+            "rowBackgroundColors": "> table | seriesByName(\"Alvorlighet\") | matchValue(sevColors)"
+          }
+        }
+      },
+      "context": {
+        "sevColors": [
+          {
+            "match": "kritisk",
+            "value": "#B3261E"
+          },
+          {
+            "match": "høy",
+            "value": "#C77700"
+          },
+          {
+            "match": "middels",
+            "value": "#8A6D00"
+          },
+          {
+            "match": "info",
+            "value": "#3C4A5A"
+          }
+        ]
+      }
+    },
+    "viz_traffic": {
+      "type": "splunk.line",
+      "title": "Pakker per minutt per kilde (log-skala)",
+      "dataSources": {
+        "primary": "ds_traffic"
+      },
+      "options": {
+        "yAxisScale": "log",
+        "legendDisplay": "right",
+        "xAxisTitleVisibility": "hide"
+      }
+    },
+    "viz_alerts": {
+      "type": "splunk.column",
+      "title": "Avvik per minutt per regel",
+      "dataSources": {
+        "primary": "ds_alerts"
+      },
+      "options": {
+        "stackMode": "stacked",
+        "legendDisplay": "right",
+        "xAxisTitleVisibility": "hide"
+      }
+    }
+  },
+  "layout": {
+    "type": "absolute",
+    "options": {
+      "width": 1440,
+      "height": 1060,
+      "display": "auto-scale"
+    },
+    "globalInputs": [
+      "input_tr"
+    ],
+    "structure": [
+      {
+        "item": "viz_active",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 0,
+          "w": 360,
+          "h": 130
+        }
+      },
+      {
+        "item": "viz_crit",
+        "type": "block",
+        "position": {
+          "x": 360,
+          "y": 0,
+          "w": 360,
+          "h": 130
+        }
+      },
+      {
+        "item": "viz_help",
+        "type": "block",
+        "position": {
+          "x": 720,
+          "y": 0,
+          "w": 720,
+          "h": 130
+        }
+      },
+      {
+        "item": "viz_tbl",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 130,
+          "w": 1440,
+          "h": 360
+        }
+      },
+      {
+        "item": "viz_traffic",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 490,
+          "w": 1440,
+          "h": 300
+        }
+      },
+      {
+        "item": "viz_alerts",
+        "type": "block",
+        "position": {
+          "x": 0,
+          "y": 790,
+          "w": 1440,
+          "h": 260
+        }
+      }
+    ]
+  }
+}
+]]></definition>
+  <meta type="hiddenElements"><![CDATA[
+{"hideEdit": false, "hideOpenInSearch": false, "hideExport": false}
+]]></meta>
+</dashboard>
