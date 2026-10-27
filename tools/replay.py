@@ -60,7 +60,7 @@ def main():
             w = csv.DictWriter(f, fieldnames=["time", "host_ip", "kind", "user", "suspicious", "detail"])
             w.writeheader()
             for h in host_events_for(attacks):
-                w.writerow({**h, "time": h["time"].strftime("%Y-%m-%dT%H:%M:%S")})
+                w.writerow({**h, "time": int(h["time"].timestamp())})  # epoch: samme tid uansett tidssone
         print(f"Host events skrevet til {lookup}", file=sys.stderr)
 
     sock = None

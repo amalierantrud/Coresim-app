@@ -27,7 +27,7 @@ class OtDetect(EventingCommand, c.Buffered):
         for a in detect(stats, baseline, k=self.k, scan_ports=self.scan_ports):
             row = a.as_row()
             row["_time"] = c.to_epoch(a.time)
-            row["_raw"] = f"{a.rule}: {a.detail}"
+            # ingen _raw: da bruker collect feltet _time som tidsstempel
             yield row
 
 

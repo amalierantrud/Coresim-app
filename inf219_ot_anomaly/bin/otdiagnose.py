@@ -41,7 +41,7 @@ class OtDiagnose(EventingCommand, c.Buffered):
         for inc in diagnose(anomalies, hosts, gap_s=self.gap):
             row = inc.as_row()
             row["_time"] = c.to_epoch(inc.start)
-            row["_raw"] = f"[{inc.severity}] {inc.explanation}"
+            # ingen _raw: da bruker collect feltet _time som tidsstempel
             yield row
 
 

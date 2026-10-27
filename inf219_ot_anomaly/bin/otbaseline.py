@@ -8,16 +8,16 @@ import os
 import sys
 
 import _otcommon as c
-from splunklib.searchcommands import Configuration, Option, ReportingCommand, dispatch, validators
+from splunklib.searchcommands import Configuration, EventingCommand, Option, dispatch, validators
 
 from otdiag import build_baseline, minute_stats_from_row
 
 
-@Configuration(requires_preop=False, required_fields=["_time", "src_ip", "dest_ip", "proto", "packets", "bytes", "dest_ports", "syn"])
-class OtBaseline(ReportingCommand, c.Buffered):
+@Configuration(required_fields=["_time", "src_ip", "dest_ip", "proto", "packets", "bytes", "dest_ports", "syn"])
+class OtBaseline(EventingCommand, c.Buffered):
     min_minutes = Option(require=False, default=10, validate=validators.Integer(1))
 
-    def reduce(self, records):
+    def transform(self, records):
         if not self.collect(records):
             return
         stats = [minute_stats_from_row(r) for r in self._buf]

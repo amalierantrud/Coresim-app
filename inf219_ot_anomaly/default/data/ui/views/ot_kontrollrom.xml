@@ -31,7 +31,7 @@
     "ds_inc": {
       "type": "ds.search",
       "options": {
-        "query": "`ot_incidents` | dedup diagnose target _time | eval Tid=strftime(_time,\"%H:%M\") | sort - _time",
+        "query": "`ot_incidents` | fields _time diagnose severity target sources confidence explanation | dedup diagnose target _time | eval Tid=strftime(_time,\"%H:%M\") | sort - _time",
         "refresh": "30s",
         "refreshType": "delay"
       }

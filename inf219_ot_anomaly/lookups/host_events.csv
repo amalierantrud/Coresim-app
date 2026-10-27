@@ -1,1 +1,3 @@
 time,host_ip,kind,user,suspicious,detail
+1792851452,192.168.10.19,innlogging,root,True,SSH-innlogging som root fra ukjent adresse 192.168.10.66
+1792851542,192.168.10.19,prosess,root,True,ukjent prosess /tmp/udpblast startet
