@@ -1,8 +1,0 @@
-<nav search_view="search">
-  <view name="ot_kontrollrom" default="true" />
-  <view name="search" />
-  <collection label="Rapporter og alarmer">
-    <a href="reports">Rapporter</a>
-    <a href="alerts">Alarmer</a>
-  </collection>
-</nav>

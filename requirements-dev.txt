@@ -1,5 +1,0 @@
-# Til utvikling, tester og notatbøker (ikke nødvendig inne i Splunk)
-pytest
-pandas
-matplotlib
-jupyter
