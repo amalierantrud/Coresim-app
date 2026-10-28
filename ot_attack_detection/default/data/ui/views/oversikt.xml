@@ -1,0 +1,29 @@
+<!-- Oversikt over nettverkstrafikken fra coresim-ws. -->
+<dashboard version="1.1">
+  <label>Oversikt</label>
+  <row>
+    <panel>
+      <title>Antall pakker</title>
+      <single>
+        <search>
+          <query>index=anomaly_detection host=coresim-ws.openlab.local | stats count</query>
+          <earliest>0</earliest>
+          <latest>now</latest>
+        </search>
+      </single>
+    </panel>
+  </row>
+    <row>
+    <panel>
+      <title>Pakker per sekund per avsender</title>
+      <chart>
+        <search>
+          <query>index=anomaly_detection host=coresim-ws.openlab.local | timechart span=1s count by src_ip</query>
+          <earliest>0</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="charting.chart">line</option>
+      </chart>
+    </panel>
+  </row>
+</dashboard>
