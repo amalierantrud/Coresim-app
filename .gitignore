@@ -1,6 +1,5 @@
 # Personlig / hemmelig - aldri i Git
-.env
-*.lic
+splunk-dev/
 
 # Genereres av tools/build_app.py
 inf219_ot_anomaly/bin/otdiag/
@@ -11,7 +10,7 @@ dist/
 inf219_ot_anomaly/local/
 inf219_testdata/local/
 **/metadata/local.meta
-
+ot_attack_detection/local/
 # Genererte testdata
 testdata/
 
