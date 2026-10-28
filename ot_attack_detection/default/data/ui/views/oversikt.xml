@@ -13,4 +13,17 @@
       </single>
     </panel>
   </row>
+    <row>
+    <panel>
+      <title>Pakker per sekund per avsender</title>
+      <chart>
+        <search>
+          <query>index=anomaly_detection host=coresim-ws.openlab.local | timechart span=1s count by src_ip</query>
+          <earliest>0</earliest>
+          <latest>now</latest>
+        </search>
+        <option name="charting.chart">line</option>
+      </chart>
+    </panel>
+  </row>
 </dashboard>
