@@ -1,39 +1,127 @@
 <!-- Oversikt over nettverkstrafikken fra coresim-ws. -->
 <dashboard version="1.1">
   <label>Oversikt</label>
+  <!-- Tidsvelger. Alle panelene bruker valget gjennom $tid.earliest$ og $tid.latest$. -->
+  <fieldset submitButton="false">
+    <input type="time" token="tid">
+      <label>Tidsrom</label>
+      <default>
+        <earliest>0</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+  </fieldset>
   <row>
     <panel>
       <title>Antall pakker</title>
       <single>
         <search>
           <query>index=anomaly_detection host=coresim-ws.openlab.local | stats count</query>
-          <earliest>0</earliest>
-          <latest>now</latest>
+          <earliest>$tid.earliest$</earliest>
+          <latest>$tid.latest$</latest>
         </search>
       </single>
     </panel>
-  </row>
-    <row>
     <panel>
-      <title>Pakker per sekund per avsender</title>
+      <title>Pakker per minutt (snitt)</title>
+      <!-- Teller pakker i hvert minutt og tar snittet, så tallet kan sammenlignes uansett tidsrom. -->
+      <single>
+        <search>
+          <query>index=anomaly_detection host=coresim-ws.openlab.local
+| bin _time span=1m
+| stats count by _time
+| stats avg(count) as per_minutt
+| eval per_minutt=round(per_minutt, 0)</query>
+          <earliest>$tid.earliest$</earliest>
+          <latest>$tid.latest$</latest>
+        </search>
+      </single>
+    </panel>
+    <panel>
+      <title>Protokoller</title>
+      <!-- Feltet protokoll lages i props.conf. Alt som ikke er kjent blir «Annet» og bør undersøkes. -->
       <chart>
         <search>
-          <query>index=anomaly_detection host=coresim-ws.openlab.local | timechart span=1s count by src_ip</query>
-          <earliest>0</earliest>
-          <latest>now</latest>
+          <query>index=anomaly_detection host=coresim-ws.openlab.local protokoll=*
+| stats count by protokoll
+| sort -count</query>
+          <earliest>$tid.earliest$</earliest>
+          <latest>$tid.latest$</latest>
         </search>
-        <option name="charting.chart">line</option>
+        <option name="charting.chart">bar</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.chart.showDataLabels">all</option>
+        <option name="charting.fieldColors">{"Annet": 0xDC4E41}</option>
       </chart>
     </panel>
   </row>
     <row>
     <panel>
-      <title>Avsendere</title>
+      <title>Pakker over tid per $felt$</title>
+      <!-- Gjelder bare dette panelet: del grafen opp per avsender eller per mottaker. -->
+      <input type="dropdown" token="felt">
+        <label>Vis per</label>
+        <choice value="src_ip">Avsender</choice>
+        <choice value="dst_ip">Mottaker</choice>
+        <default>src_ip</default>
+      </input>
+      <chart>
+        <search>
+          <query>index=anomaly_detection host=coresim-ws.openlab.local $felt$=* | timechart count by $felt$</query>
+          <earliest>$tid.earliest$</earliest>
+          <latest>$tid.latest$</latest>
+        </search>
+        <option name="charting.chart">line</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Pakker per avsender</title>
+      <!-- Hvem sender mest. Sortert med den største øverst. -->
+      <chart>
+        <search>
+          <query>index=anomaly_detection host=coresim-ws.openlab.local src_ip=*
+| stats count as pakker by src_ip
+| sort -pakker</query>
+          <earliest>$tid.earliest$</earliest>
+          <latest>$tid.latest$</latest>
+        </search>
+        <option name="charting.chart">bar</option>
+        <option name="charting.legend.placement">none</option>
+        <option name="charting.chart.showDataLabels">all</option>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+      </chart>
+    </panel>
+    <panel>
+      <title>Pakkestørrelser per avsender</title>
+      <!-- Én søyle per avsender, delt i farger etter pakkestørrelse (byte). Hver enhet har faste størrelser,
+           så en ny farge i en søyle betyr at enheten sender noe den ikke pleier. -->
+      <chart>
+        <search>
+          <query>index=anomaly_detection host=coresim-ws.openlab.local src_ip=*
+| chart count over src_ip by len</query>
+          <earliest>$tid.earliest$</earliest>
+          <latest>$tid.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.legend.placement">right</option>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Detaljer per avsender</title>
+      <!-- Tallene bak grafene: mottakere, porter og størrelser for hver avsender. -->
       <table>
         <search>
-          <query>index=anomaly_detection host=coresim-ws.openlab.local src_ip=*| stats count as pakker dc(dst_ip) as mottakere values(dst_port) as porter values(len) as lengder by src_ip| sort -pakker</query>
-          <earliest>0</earliest>
-          <latest>now</latest>
+          <query>index=anomaly_detection host=coresim-ws.openlab.local src_ip=*
+| stats count as pakker dc(dst_ip) as mottakere values(dst_port) as porter values(len) as lengder by src_ip
+| sort -pakker</query>
+          <earliest>$tid.earliest$</earliest>
+          <latest>$tid.latest$</latest>
         </search>
       </table>
     </panel>
