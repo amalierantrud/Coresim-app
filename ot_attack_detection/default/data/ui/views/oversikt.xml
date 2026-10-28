@@ -26,4 +26,16 @@
       </chart>
     </panel>
   </row>
+    <row>
+    <panel>
+      <title>Avsendere</title>
+      <table>
+        <search>
+          <query>index=anomaly_detection host=coresim-ws.openlab.local src_ip=*| stats count as pakker dc(dst_ip) as mottakere values(dst_port) as porter values(len) as lengder by src_ip| sort -pakker</query>
+          <earliest>0</earliest>
+          <latest>now</latest>
+        </search>
+      </table>
+    </panel>
+  </row>
 </dashboard>
