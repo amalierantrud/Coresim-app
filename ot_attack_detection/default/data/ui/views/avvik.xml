@@ -1,7 +1,7 @@
 <!-- Avvik: trafikk vi ikke har sett før.
      Sammenligner pakkene med to lister i lookups/:
        kjente_protokoller.csv  protokoller som er normale i nettet
-       kjent_trafikk.csv       kjente kombinasjoner av avsender, mottaker, port og pakkestørrelse
+       baseline_trafikk.csv    kombinasjoner av avsender, mottaker, port og pakkestørrelse fra baselinen
      Alt som ikke står i listene, vises her. -->
 <dashboard version="1.1">
   <label>Avvik</label>
@@ -10,7 +10,7 @@
   <search id="avvik">
     <query>index=anomaly_detection host=coresim-ws.openlab.local protokoll=*
 | lookup kjente_protokoller.csv protokoll OUTPUT kjent AS kjent_protokoll
-| lookup kjent_trafikk.csv src_ip dst_ip dst_port len OUTPUT kjent AS kjent_trafikk
+| lookup baseline_trafikk.csv src_ip dst_ip dst_port len OUTPUT kjent AS kjent_trafikk
 | eval avvik=case(
     isnull(kjent_protokoll), "Ukjent protokoll",
     protokoll=="UDP" AND isnull(kjent_trafikk), "Ny UDP-trafikk")
