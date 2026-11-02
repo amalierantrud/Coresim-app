@@ -147,6 +147,23 @@ Start Splunk på nytt først, så indeksene og sourcetypene fra appen finnes. La
 
 Last opp hver fil bare én gang, ellers blir pakkene dobbelt opp.
 
+## Pakke appen til coresim
+
+Dashboardet henter pakkene med makroen `` `ot_data` `` (`default/macros.conf`). Den søker i både `index=capture` (lokalt)
+og `index=anomaly_detection` (coresim). Hver Splunk har bare én av dem, så appen virker likt begge steder uten endringer.
+
+Kjør i `coresim-app`:
+
+```bash
+mkdir -Force dist; tar -czf dist/ot_attack_detection.tgz --exclude=local --exclude=metadata/local.meta --exclude=lib --exclude=default/indexes.conf ot_attack_detection
+```
+
+- `local/` og `local.meta` er dine egne innstillinger og skal ikke være med.
+- `indexes.conf` er utelatt, så appen ikke lager indeksene `baseline` og `capture` på NORCE sin Splunk.
+
+Installer med _Apps → Manage Apps → Install app from file_ (krever admin på coresim).
+Velg et kort tidsrom på coresim, for eksempel én time: `anomaly_detection` har over 100 millioner pakker.
+
 ## Når du endrer appen
 
 - Endringer i filene i `ot_attack_detection/` ser Splunk med en gang. Last inn siden på nytt, eller kjør `docker compose restart` etter endringer i `.conf`-filer.

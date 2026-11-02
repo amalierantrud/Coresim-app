@@ -8,6 +8,9 @@ ot_attack_detection/local/
 # Data (pcap, JSON, CSV): for store for Git, ligger bare lokalt
 testdata/
 
+# Ferdig pakket app (lages med tar, se README)
+dist/
+
 # Python / editor
 __pycache__/
 *.pyc

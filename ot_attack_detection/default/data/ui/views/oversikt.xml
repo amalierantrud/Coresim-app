@@ -1,4 +1,5 @@
-<!-- Oversikt over angrepsopptaket fra 29. september 2026, laget for at et menneske selv skal se avvik.
+<!-- Oversikt over nettverkstrafikken, laget for at et menneske selv skal se avvik.
+     Pakkene hentes med makroen ot_data (macros.conf), så samme dashboard virker lokalt og på coresim.
      Nesten alt vises per minutt over tid: trafikken er svært regelmessig, så normalen blir flate linjer og brudd synes. -->
 <dashboard version="1.1">
   <label>Oversikt</label>
@@ -18,7 +19,7 @@
       <!-- All trafikk samlet. Se etter topper, fall eller brudd i linja. -->
       <chart>
         <search>
-          <query>index=capture
+          <query>`ot_data`
 | timechart span=1m count as pakker</query>
           <earliest>$tid.earliest$</earliest>
           <latest>$tid.latest$</latest>
@@ -34,7 +35,7 @@
       <!-- Én linje per avsender. Se etter en enhet som sender mer, mindre eller slutter helt. -->
       <chart>
         <search>
-          <query>index=capture src_ip=*
+          <query>`ot_data` src_ip=*
 | timechart span=1m count by src_ip</query>
           <earliest>$tid.earliest$</earliest>
           <latest>$tid.latest$</latest>
@@ -51,7 +52,7 @@
            så en ny farge i en søyle betyr at enheten sender noe den ikke pleier. -->
       <chart>
         <search>
-          <query>index=capture src_ip=*
+          <query>`ot_data` src_ip=*
 | chart count over src_ip by len</query>
           <earliest>$tid.earliest$</earliest>
           <latest>$tid.latest$</latest>
@@ -67,7 +68,7 @@
       <!-- Feltet protokoll lages i props.conf. Se etter en protokoll som øker, eller en ny som dukker opp. -->
       <chart>
         <search>
-          <query>index=capture protokoll=*
+          <query>`ot_data` protokoll=*
 | timechart span=1m count by protokoll</query>
           <earliest>$tid.earliest$</earliest>
           <latest>$tid.latest$</latest>
@@ -84,7 +85,7 @@
       <!-- Antall ulike mottakere hver avsender snakker med per minutt. En plutselig økning kan være skanning. -->
       <chart>
         <search>
-          <query>index=capture src_ip=*
+          <query>`ot_data` src_ip=*
 | timechart span=1m dc(dst_ip) by src_ip</query>
           <earliest>$tid.earliest$</earliest>
           <latest>$tid.latest$</latest>
@@ -98,7 +99,7 @@
       <!-- Antall ulike mottakerporter per avsender per minutt. En plutselig økning kan være skanning. -->
       <chart>
         <search>
-          <query>index=capture src_ip=*
+          <query>`ot_data` src_ip=*
 | timechart span=1m dc(dst_port) by src_ip</query>
           <earliest>$tid.earliest$</earliest>
           <latest>$tid.latest$</latest>
@@ -114,7 +115,7 @@
       <!-- Én rad per avsender. Se etter nye IP-er (sent første gang) eller IP-er som har forsvunnet (tidlig siste gang). -->
       <table>
         <search>
-          <query>index=capture src_ip=*
+          <query>`ot_data` src_ip=*
 | stats min(_time) as forste max(_time) as siste count as pakker by src_ip
 | sort forste
 | eval forste=strftime(forste, "%Y-%m-%d %H:%M"), siste=strftime(siste, "%Y-%m-%d %H:%M")
