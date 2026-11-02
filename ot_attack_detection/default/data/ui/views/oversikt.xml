@@ -3,6 +3,20 @@
      Nesten alt vises per minutt over tid: trafikken er svært regelmessig, så normalen blir flate linjer og brudd synes. -->
 <dashboard version="1.1">
   <label>Oversikt</label>
+
+  <!-- Felles søk for nettverkspanelene. Henter pakkene én gang og teller dem per minutt per strøm,
+       så panelene under bare regner videre på resultatet i stedet for å søke hver for seg.
+       Det gir 2 søk i stedet for 7, som er viktig på coresim der en bruker bare kan kjøre 3 samtidig.
+       Pakker uten IP (ARP, STP osv.) får "-", ellers ville stats droppet dem. -->
+  <search id="trafikk">
+    <query>`ot_data`
+| fillnull value="-" src_ip dst_ip dst_port len protokoll
+| bin _time span=1m
+| stats count by _time src_ip dst_ip dst_port len protokoll</query>
+    <earliest>$tid.earliest$</earliest>
+    <latest>$tid.latest$</latest>
+  </search>
+
   <!-- Tidsvelger. Alle panelene bruker valget gjennom $tid.earliest$ og $tid.latest$. -->
   <fieldset submitButton="false">
     <input type="time" token="tid">
@@ -18,11 +32,8 @@
       <title>Pakker per minutt</title>
       <!-- All trafikk samlet. Se etter topper, fall eller brudd i linja. -->
       <chart>
-        <search>
-          <query>`ot_data`
-| timechart span=1m count as pakker</query>
-          <earliest>$tid.earliest$</earliest>
-          <latest>$tid.latest$</latest>
+        <search base="trafikk">
+          <query>timechart span=1m sum(count) as pakker</query>
         </search>
         <option name="charting.chart">line</option>
         <option name="charting.legend.placement">none</option>
@@ -34,11 +45,9 @@
       <title>Pakker per minutt per avsender</title>
       <!-- Én linje per avsender. Se etter en enhet som sender mer, mindre eller slutter helt. -->
       <chart>
-        <search>
-          <query>`ot_data` src_ip=*
-| timechart span=1m count by src_ip</query>
-          <earliest>$tid.earliest$</earliest>
-          <latest>$tid.latest$</latest>
+        <search base="trafikk">
+          <query>where src_ip!="-"
+| timechart span=1m sum(count) by src_ip</query>
         </search>
         <option name="charting.chart">line</option>
         <option name="charting.legend.placement">right</option>
@@ -51,11 +60,10 @@
       <!-- Én søyle per avsender, delt i farger etter pakkestørrelse (byte). Hver enhet har faste størrelser,
            så en ny farge i en søyle betyr at enheten sender noe den ikke pleier. -->
       <chart>
-        <search>
-          <query>`ot_data` src_ip=*
-| chart count over src_ip by len</query>
-          <earliest>$tid.earliest$</earliest>
-          <latest>$tid.latest$</latest>
+        <search base="trafikk">
+          <query>where src_ip!="-"
+| eval len=if(len=="-", null(), len)
+| chart sum(count) over src_ip by len</query>
         </search>
         <option name="charting.chart">column</option>
         <option name="charting.chart.stackMode">stacked</option>
@@ -67,11 +75,9 @@
       <title>Protokoller over tid</title>
       <!-- Feltet protokoll lages i props.conf. Se etter en protokoll som øker, eller en ny som dukker opp. -->
       <chart>
-        <search>
-          <query>`ot_data` protokoll=*
-| timechart span=1m count by protokoll</query>
-          <earliest>$tid.earliest$</earliest>
-          <latest>$tid.latest$</latest>
+        <search base="trafikk">
+          <query>where protokoll!="-"
+| timechart span=1m sum(count) by protokoll</query>
         </search>
         <option name="charting.chart">line</option>
         <option name="charting.legend.placement">right</option>
@@ -84,11 +90,9 @@
       <title>Mottakere per avsender over tid</title>
       <!-- Antall ulike mottakere hver avsender snakker med per minutt. En plutselig økning kan være skanning. -->
       <chart>
-        <search>
-          <query>`ot_data` src_ip=*
+        <search base="trafikk">
+          <query>where src_ip!="-"
 | timechart span=1m dc(dst_ip) by src_ip</query>
-          <earliest>$tid.earliest$</earliest>
-          <latest>$tid.latest$</latest>
         </search>
         <option name="charting.chart">line</option>
         <option name="charting.legend.placement">right</option>
@@ -98,11 +102,9 @@
       <title>Porter per avsender over tid</title>
       <!-- Antall ulike mottakerporter per avsender per minutt. En plutselig økning kan være skanning. -->
       <chart>
-        <search>
-          <query>`ot_data` src_ip=*
+        <search base="trafikk">
+          <query>where src_ip!="-" AND dst_port!="-"
 | timechart span=1m dc(dst_port) by src_ip</query>
-          <earliest>$tid.earliest$</earliest>
-          <latest>$tid.latest$</latest>
         </search>
         <option name="charting.chart">line</option>
         <option name="charting.legend.placement">right</option>
@@ -114,21 +116,20 @@
       <title>Avsendere</title>
       <!-- Én rad per avsender. Se etter nye IP-er (sent første gang) eller IP-er som har forsvunnet (tidlig siste gang). -->
       <table>
-        <search>
-          <query>`ot_data` src_ip=*
-| stats min(_time) as forste max(_time) as siste count as pakker by src_ip
+        <search base="trafikk">
+          <query>where src_ip!="-"
+| stats min(_time) as forste max(_time) as siste sum(count) as pakker by src_ip
 | sort forste
 | eval forste=strftime(forste, "%Y-%m-%d %H:%M"), siste=strftime(siste, "%Y-%m-%d %H:%M")
 | rename src_ip as "Avsender", forste as "Første", siste as "Siste", pakker as "Pakker"</query>
-          <earliest>$tid.earliest$</earliest>
-          <latest>$tid.latest$</latest>
         </search>
         <option name="drilldown">none</option>
       </table>
     </panel>
     <panel>
       <title>Host events per minutt</title>
-      <!-- Hendelser fra hosten (indeksen main). Se etter aktivitet samtidig med endringer i nettverket. -->
+      <!-- Hendelser fra hosten (indeksen main). Eget søk, siden det er andre data enn nettverkspakkene.
+           Se etter aktivitet samtidig med endringer i nettverket. -->
       <chart>
         <search>
           <query>index=main host=coresim-ws
