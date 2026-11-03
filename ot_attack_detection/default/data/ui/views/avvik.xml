@@ -38,8 +38,9 @@
   </fieldset>
 
   <!-- Diagnose: avvikene i samme vindu tolkes som mulige angrep av kommandoen diagnoser (bin/deteksjon.py).
-       Navn, alvorlighet, MITRE ATT&CK for ICS og tiltak hentes fra lookups/angrepstyper.csv.
-       Viser alle typer avvik, uavhengig av filteret på type. -->
+       Navn, alvorlighet, MITRE-nummer og våre tiltak hentes fra lookups/angrepstyper.csv,
+       taktikk, MITRE sine tiltak og lenke fra lookups/mitre_ics.csv (laget med tools/lag_mitre_ics.py).
+       Viser alle typer avvik, uavhengig av filteret på type. Klikk en rad for å åpne teknikken hos MITRE. -->
   <row>
     <panel>
       <title>Mulige angrep</title>
@@ -47,17 +48,23 @@
         <search base="avvik">
           <query>diagnoser
 | lookup angrepstyper.csv angrep OUTPUT navn alvorlighet rekkefolge mitre_id mitre_navn forklaring tiltak
+| lookup mitre_ics.csv mitre_id OUTPUT taktikk mitre_tiltak url
 | fillnull value="-" strom
 | stats count AS vinduer min(_time) AS forste max(_time) AS siste values(src_ip) AS avsendere first(bevis) AS bevis
     first(alvorlighet) AS alvorlighet first(rekkefolge) AS rekkefolge first(mitre_id) AS mitre_id first(mitre_navn) AS mitre_navn
-    first(forklaring) AS forklaring first(tiltak) AS tiltak by navn strom
+    first(taktikk) AS taktikk first(forklaring) AS forklaring first(tiltak) AS tiltak first(mitre_tiltak) AS mitre_tiltak
+    first(url) AS url by navn strom
 | sort rekkefolge -vinduer
 | eval mitre=mitre_id." ".mitre_navn, forste=strftime(forste, "%Y-%m-%d %H:%M:%S"), siste=strftime(siste, "%Y-%m-%d %H:%M:%S")
-| table navn alvorlighet strom avsendere vinduer forste siste bevis mitre forklaring tiltak
-| rename navn AS "Mulig angrep", alvorlighet AS "Alvorlighet", strom AS "Strøm", avsendere AS "Avsender", vinduer AS "Vinduer",
-    forste AS "Første", siste AS "Siste", bevis AS "Bevis (første vindu)", mitre AS "MITRE ATT&amp;CK for ICS", forklaring AS "Hva det betyr", tiltak AS "Tiltak"</query>
+| table navn alvorlighet taktikk strom avsendere vinduer forste siste bevis mitre forklaring tiltak mitre_tiltak url
+| rename navn AS "Mulig angrep", alvorlighet AS "Alvorlighet", taktikk AS "Taktikk (MITRE)", strom AS "Strøm",
+    avsendere AS "Avsender", vinduer AS "Vinduer", forste AS "Første", siste AS "Siste", bevis AS "Bevis (første vindu)",
+    mitre AS "MITRE ATT&amp;CK for ICS", forklaring AS "Hva det betyr", tiltak AS "Tiltak", mitre_tiltak AS "MITRE sine tiltak",
+    url AS "Lenke"</query>
         </search>
-        <option name="drilldown">none</option>
+        <drilldown>
+          <link target="_blank">$row.Lenke|n$</link>
+        </drilldown>
         <option name="count">10</option>
         <option name="wrap">true</option>
         <format type="color" field="Alvorlighet">

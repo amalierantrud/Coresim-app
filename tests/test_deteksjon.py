@@ -184,6 +184,17 @@ def test_angrepstyper_csv_har_alle_angrep():
     assert i_csv == i_koden
 
 
+def test_mitre_numrene_finnes_hos_mitre():
+    # Fanger opp når MITRE erstatter en teknikk (slik T0856 ble T1692.002). Lag mitre_ics.csv på nytt med
+    # python tools/lag_mitre_ics.py og rett numrene i angrepstyper.csv hvis denne feiler.
+    lookups = os.path.join(ROT, "ot_attack_detection", "lookups")
+    with open(os.path.join(lookups, "mitre_ics.csv"), newline="", encoding="utf-8") as f:
+        hos_mitre = {r["mitre_id"] for r in csv.DictReader(f)}
+    with open(os.path.join(lookups, "angrepstyper.csv"), newline="", encoding="utf-8") as f:
+        vaare = {r["angrep"]: r["mitre_id"] for r in csv.DictReader(f)}
+    assert {a: m for a, m in vaare.items() if m not in hos_mitre} == {}
+
+
 # --- hele angrepsopptaket ---
 
 SPOOF_START = 1790672480   # 2026-09-29 09:01:20 UTC
