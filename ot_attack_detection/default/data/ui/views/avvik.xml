@@ -1,0 +1,176 @@
+<!-- Avvik: trafikk som skiller seg fra baselinen.
+     Pakkene telles per strøm per 10 sekunder, og kommandoen finnavvik (bin/finnavvik.py og bin/deteksjon.py)
+     sammenligner hvert vindu med lookups/baseline_trafikk.csv. Reglene og grensene er forklart i README.
+     Pakkene hentes med makroen ot_data (macros.conf), så samme dashboard virker lokalt og på coresim. -->
+<dashboard version="1.1">
+  <label>Avvik</label>
+
+  <!-- Felles søk for alle panelene, så dashboardet bare kjører ett søk.
+       Tar med alle pakker med port og lengde, også HSRP, som er UDP men har egen protokoll. -->
+  <search id="avvik">
+    <query>`ot_data` src_ip=* dst_port=* len=*
+| bin _time span=10s
+| stats count AS n values(src_mac) AS src_mac by _time src_ip dst_ip dst_port len
+| eval src_mac=mvjoin(src_mac, " ")
+| finnavvik</query>
+    <earliest>$tid.earliest$</earliest>
+    <latest>$tid.latest$</latest>
+  </search>
+
+  <!-- Tidsvelger og filter på type. Tallene øverst viser alltid alle typer, resten følger filteret. -->
+  <fieldset submitButton="false">
+    <input type="time" token="tid">
+      <label>Tidsrom</label>
+      <default>
+        <earliest>0</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+    <input type="dropdown" token="type">
+      <label>Type avvik</label>
+      <choice value="*">Alle</choice>
+      <choice value="Feil MAC">Feil MAC</choice>
+      <choice value="For høy rate">For høy rate</choice>
+      <choice value="Ny strøm">Ny strøm</choice>
+      <choice value="Strøm mangler">Strøm mangler</choice>
+      <default>*</default>
+    </input>
+  </fieldset>
+
+  <!-- Diagnose: avvikene i samme vindu tolkes som mulige angrep av kommandoen diagnoser (bin/deteksjon.py).
+       Navn, alvorlighet, MITRE ATT&CK for ICS og tiltak hentes fra lookups/angrepstyper.csv.
+       Viser alle typer avvik, uavhengig av filteret på type. -->
+  <row>
+    <panel>
+      <title>Mulige angrep</title>
+      <table>
+        <search base="avvik">
+          <query>diagnoser
+| lookup angrepstyper.csv angrep OUTPUT navn alvorlighet rekkefolge mitre_id mitre_navn forklaring tiltak
+| fillnull value="-" strom
+| stats count AS vinduer min(_time) AS forste max(_time) AS siste values(src_ip) AS avsendere first(bevis) AS bevis
+    first(alvorlighet) AS alvorlighet first(rekkefolge) AS rekkefolge first(mitre_id) AS mitre_id first(mitre_navn) AS mitre_navn
+    first(forklaring) AS forklaring first(tiltak) AS tiltak by navn strom
+| sort rekkefolge -vinduer
+| eval mitre=mitre_id." ".mitre_navn, forste=strftime(forste, "%Y-%m-%d %H:%M:%S"), siste=strftime(siste, "%Y-%m-%d %H:%M:%S")
+| table navn alvorlighet strom avsendere vinduer forste siste bevis mitre forklaring tiltak
+| rename navn AS "Mulig angrep", alvorlighet AS "Alvorlighet", strom AS "Strøm", avsendere AS "Avsender", vinduer AS "Vinduer",
+    forste AS "Første", siste AS "Siste", bevis AS "Bevis (første vindu)", mitre AS "MITRE ATT&amp;CK for ICS", forklaring AS "Hva det betyr", tiltak AS "Tiltak"</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">10</option>
+        <option name="wrap">true</option>
+        <format type="color" field="Alvorlighet">
+          <colorPalette type="map">{"Høy":#DC4E41,"Middels":#F1813F,"Lav":#F8BE34}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Mulige angrep over tid</title>
+      <!-- Antall 10-sekundersvinduer per minutt med hvert mulig angrep. -->
+      <chart>
+        <search base="avvik">
+          <query>diagnoser
+| lookup angrepstyper.csv angrep OUTPUT navn
+| timechart span=1m cont=false count by navn
+| makecontinuous _time span=1m
+| fillnull value=0</query>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.legend.placement">bottom</option>
+      </chart>
+    </panel>
+  </row>
+
+  <!-- Ett tall per type: antall 10-sekundersvinduer med avvik. Grønn ved 0, rød ellers. -->
+  <row>
+    <panel>
+      <title>Feil MAC</title>
+      <single>
+        <search base="avvik">
+          <query>stats count(eval(type=="Feil MAC")) AS avvik</query>
+        </search>
+        <option name="useColors">1</option>
+        <option name="colorBy">value</option>
+        <option name="rangeValues">[0]</option>
+        <option name="rangeColors">["0x53a051","0xdc4e41"]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>For høy rate</title>
+      <single>
+        <search base="avvik">
+          <query>stats count(eval(type=="For høy rate")) AS avvik</query>
+        </search>
+        <option name="useColors">1</option>
+        <option name="colorBy">value</option>
+        <option name="rangeValues">[0]</option>
+        <option name="rangeColors">["0x53a051","0xdc4e41"]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Ny strøm</title>
+      <single>
+        <search base="avvik">
+          <query>stats count(eval(type=="Ny strøm")) AS avvik</query>
+        </search>
+        <option name="useColors">1</option>
+        <option name="colorBy">value</option>
+        <option name="rangeValues">[0]</option>
+        <option name="rangeColors">["0x53a051","0xdc4e41"]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Strøm mangler</title>
+      <single>
+        <search base="avvik">
+          <query>stats count(eval(type=="Strøm mangler")) AS avvik</query>
+        </search>
+        <option name="useColors">1</option>
+        <option name="colorBy">value</option>
+        <option name="rangeValues">[0]</option>
+        <option name="rangeColors">["0x53a051","0xdc4e41"]</option>
+      </single>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Avvik over tid</title>
+      <!-- Avvik per minutt, delt etter type. Se etter en type som dukker opp eller øker plutselig.
+           cont=false og makecontinuous fyller bare hull mellom første og siste minutt med data, ikke fra 1970. -->
+      <chart>
+        <search base="avvik">
+          <query>search type="$type$"
+| timechart span=1m cont=false count by type
+| makecontinuous _time span=1m
+| fillnull value=0</query>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.legend.placement">bottom</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Liste over avvik</title>
+      <!-- Én rad per type avvik og strøm, med første og siste gang og hvor mange vinduer det gjelder.
+           Målt er det høyeste antallet pakker per 10 s (rate) eller MAC-en som ble sett (feil MAC). -->
+      <table>
+        <search base="avvik">
+          <query>search type="$type$"
+| eval strom=src_ip." → ".dst_ip.":".dst_port." (".len." byte)"
+| stats count AS vinduer min(_time) AS forste max(_time) AS siste max(malt) AS malt first(normal) AS normal first(forklaring) AS forklaring by type strom
+| sort type -vinduer
+| eval forste=strftime(forste, "%Y-%m-%d %H:%M:%S"), siste=strftime(siste, "%Y-%m-%d %H:%M:%S")
+| rename type AS "Avvik", strom AS "Strøm", vinduer AS "Vinduer", forste AS "Første", siste AS "Siste", malt AS "Målt", normal AS "Normalt", forklaring AS "Forklaring"</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">20</option>
+      </table>
+    </panel>
+  </row>
+</dashboard>

@@ -1,4 +1,5 @@
 <nav search_view="search">
   <view name="search" default="true" />
   <view name="oversikt" />
+  <view name="avvik" />
 </nav>

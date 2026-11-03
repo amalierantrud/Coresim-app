@@ -109,6 +109,81 @@ def test_les_baseline():
     assert baseline[FAST]["maks_10s"] == 100.0
 
 
+# --- diagnose: fra avvik til mulige angrep ---
+
+# Litt større fasit: .101 har to faste strømmer, .102 én fast, og .80 en ujevn.
+FAST2 = ("192.168.10.101", "224.10.10.101", "20121", "996")
+ANNEN = ("192.168.10.102", "224.10.10.102", "20211", "240")
+BASELINE_D = dict(BASELINE)
+BASELINE_D[FAST2] = {"src_mac": "20:87:56:72:15:53", "snitt_10s": 20.0, "min_10s": 20.0, "maks_10s": 20.0}
+BASELINE_D[ANNEN] = {"src_mac": "20:87:56:72:15:20", "snitt_10s": 100.0, "min_10s": 100.0, "maks_10s": 100.0}
+
+
+def avvik_for(vinduer):
+    return d.sammenlign(vinduer, BASELINE_D)
+
+
+def angrep(diagnoser):
+    return sorted(x["angrep"] for x in diagnoser)
+
+
+def test_feil_mac_og_hoy_rate_blir_spoofing():
+    avvik = d.sjekk_vindu(vindu(FAST, 1000, "20:87:56:72:15:53 3a:c8:54:cd:b5:e2"), BASELINE_D)
+    diagnoser = d.diagnoser(avvik, BASELINE_D)
+    assert angrep(diagnoser) == [d.SPOOFING]          # ikke i tillegg økt sending på samme strøm
+    assert diagnoser[0]["avvik"] == 2
+    assert "3a:c8:54:cd:b5:e2" in diagnoser[0]["bevis"]
+
+
+def test_hoy_rate_paa_en_strom_blir_okt_sending():
+    avvik = d.sjekk_vindu(vindu(FAST, 1000), BASELINE_D)
+    assert angrep(d.diagnoser(avvik, BASELINE_D)) == [d.OKT_SENDING]
+
+
+def test_mange_strommer_over_grensen_blir_flooding():
+    avvik = d.sjekk_vindu(vindu(FAST, 1000), BASELINE_D) + d.sjekk_vindu(vindu(ANNEN, 1000), BASELINE_D)
+    assert angrep(d.diagnoser(avvik, BASELINE_D)) == [d.FLOODING]   # 2 av 3 faste strømmer
+
+
+def test_alle_strommer_fra_en_avsender_mangler_blir_enhet_stille():
+    vinduer = [vindu(s, n, tid=t) for t in (0, 20) for s, n in ((FAST, 100), (FAST2, 20), (ANNEN, 100))]
+    vinduer += [vindu(ANNEN, 100, tid=10)]                            # .101 er borte i vinduet 10
+    diagnoser = d.diagnoser(avvik_for(vinduer), BASELINE_D)
+    assert [(x["angrep"], x["src_ip"], x["_time"]) for x in diagnoser] == [(d.ENHET_STILLE, "192.168.10.101", 10)]
+
+
+def test_en_av_flere_strommer_mangler_blir_strom_borte():
+    vinduer = [vindu(s, n, tid=t) for t in (0, 20) for s, n in ((FAST, 100), (FAST2, 20), (ANNEN, 100))]
+    vinduer += [vindu(FAST, 100, tid=10), vindu(ANNEN, 100, tid=10)]  # bare FAST2 er borte
+    diagnoser = d.diagnoser(avvik_for(vinduer), BASELINE_D)
+    assert [(x["angrep"], x["strom"]) for x in diagnoser] == [(d.STROM_BORTE, d._strom_tekst(FAST2))]
+
+
+def test_ny_strom_fra_ukjent_avsender_blir_ukjent_enhet():
+    avvik = d.sjekk_vindu(vindu(("192.168.10.66", "224.10.10.101", "20111", "480"), 10), BASELINE_D)
+    assert angrep(d.diagnoser(avvik, BASELINE_D)) == [d.UKJENT_ENHET]
+
+
+def test_mange_nye_porter_fra_kjent_avsender_blir_skanning():
+    avvik = []
+    for port in range(1, 6):
+        avvik += d.sjekk_vindu(vindu(("192.168.10.102", "192.168.10.120", str(port), "0"), 1), BASELINE_D)
+    assert angrep(d.diagnoser(avvik, BASELINE_D)) == [d.SKANNING]
+
+
+def test_en_ny_strom_fra_kjent_avsender_blir_ny_forbindelse():
+    avvik = d.sjekk_vindu(vindu(("192.168.10.102", "192.168.10.120", "5900", "0"), 1), BASELINE_D)
+    assert angrep(d.diagnoser(avvik, BASELINE_D)) == [d.NY_FORBINDELSE]
+
+
+def test_angrepstyper_csv_har_alle_angrep():
+    with open(os.path.join(ROT, "ot_attack_detection", "lookups", "angrepstyper.csv"), newline="", encoding="utf-8") as f:
+        i_csv = {r["angrep"] for r in csv.DictReader(f)}
+    i_koden = {d.SPOOFING, d.FLOODING, d.OKT_SENDING, d.ENHET_STILLE, d.STROM_BORTE,
+               d.UKJENT_ENHET, d.SKANNING, d.NY_FORBINDELSE}
+    assert i_csv == i_koden
+
+
 # --- hele angrepsopptaket ---
 
 SPOOF_START = 1790672480   # 2026-09-29 09:01:20 UTC
@@ -133,3 +208,7 @@ def test_spoofingen_i_capture_finnes_med_mac():
         assert SPOOF_START <= a["_time"] < SPOOF_SLUTT
 
     assert not [a for a in avvik if a["type"] == d.STROM_MANGLER]
+
+    spoofing = [x for x in d.diagnoser(avvik, d.les_baseline(BASELINE_CSV)) if x["angrep"] == d.SPOOFING]
+    assert [(x["_time"], x["src_ip"]) for x in spoofing] == [(SPOOF_START, "192.168.10.101"),
+                                                            (SPOOF_START + 10, "192.168.10.101")]

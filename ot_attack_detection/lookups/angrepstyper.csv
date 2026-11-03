@@ -1,0 +1,9 @@
+angrep,navn,alvorlighet,rekkefolge,mitre_id,mitre_navn,forklaring,tiltak
+spoofing,Spoofing,Høy,1,T0856,Spoof Reporting Message,"En kjent strøm sendes fra en annen maskin (MAC) enn vanlig. Noen utgir seg for å være enheten og kan sende falske målinger.","Finn maskinen med MAC-en (se baseline), koble den fra nettet og sjekk verdiene operatøren ser."
+flooding,Flooding,Høy,2,T0814,Denial of Service,"Mange faste strømmer sender langt mer enn normalt samtidig. Nettet eller enhetene kan bli overbelastet.","Finn kilden til den ekstra trafikken og begrens den i switch eller brannmur."
+enhet_stille,Enhet sender ikke,Høy,3,T0829,Loss of View,"En enhet som alltid sender, har sluttet helt. Operatøren kan miste oversikten over den delen av anlegget.","Sjekk om enheten er nede, frakoblet eller blokkert."
+ukjent_enhet,Ukjent enhet,Høy,4,T0848,Rogue Master,"En avsender som ikke finnes i baselinen, sender i nettet. Det kan være en fremmed maskin koblet til.","Finn enheten (IP og MAC) og avklar om den skal være der."
+okt_sending,Økt sending,Middels,5,T0855,Unauthorized Command Message,"Én strøm sender langt mer enn normalt fra riktig MAC. Det kan være innsatte eller gjentatte pakker (replay).","Sammenlign med det som skjer i prosessen samtidig, og sjekk avsenderen."
+strom_borte,Strøm borte,Middels,6,T0815,Denial of View,"En strøm som alltid er der, mangler, mens andre fra samme enhet fortsatt kommer.","Sjekk enheten og nettet mellom den og mottakeren."
+skanning,Skanning,Middels,7,T0846,Remote System Discovery,"Én avsender snakker plutselig med mange nye mottakere eller porter. Typisk kartlegging før et angrep.","Finn ut hvem som bruker maskinen, og om skanningen er planlagt."
+ny_forbindelse,Ny forbindelse,Lav,8,T0886,Remote Services,"En kjent enhet har en strøm som ikke finnes i baselinen. Kan være ny fjerntilgang, eller bare en endring i oppsettet.","Avklar om forbindelsen er kjent. Er den normal, legg den til i baselinen."

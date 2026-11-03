@@ -1,7 +1,13 @@
-"""Reglene som sammenligner nettverkstrafikk med baselinen.
+"""Reglene som sammenligner nettverkstrafikk med baselinen, og diagnosen som tolker avvikene.
 
 Ren Python uten Splunk, så reglene kan testes og forklares for seg selv.
-Splunk-kommandoen | finnavvik (finnavvik.py) bruker denne filen, og den kan kjøres alene fra kommandolinja.
+Splunk-kommandoene | finnavvik (finnavvik.py) og | diagnoser (diagnoser.py) bruker denne filen,
+og den kan kjøres alene fra kommandolinja.
+
+To trinn:
+1. sammenlign(): finner avvik per strøm per vindu (ny strøm, feil MAC, for høy rate, strøm mangler).
+2. diagnoser(): ser på alle avvikene i samme vindu og gir mulige angrep (spoofing, flooding osv.).
+   Navn, alvorlighet og MITRE-teknikk for hvert angrep står i lookups/angrepstyper.csv.
 
 Trafikken kommer inn som vinduer: én rad per strøm per 10 sekunder, med antall pakker (n)
 og avsender-MAC-ene som ble sett. En strøm er avsender, mottaker, port og størrelse (len).
@@ -24,6 +30,21 @@ NY_STROM = "Ny strøm"
 FEIL_MAC = "Feil MAC"
 FOR_HOY_RATE = "For høy rate"
 STROM_MANGLER = "Strøm mangler"
+
+# Mulige angrep. Kodene slås opp i lookups/angrepstyper.csv for navn, alvorlighet og MITRE.
+SPOOFING = "spoofing"              # kjent strøm sendt fra feil MAC
+FLOODING = "flooding"              # mange faste strømmer over rate-grensen samtidig
+OKT_SENDING = "okt_sending"        # én strøm over grensen, men fra riktig MAC
+ENHET_STILLE = "enhet_stille"      # alle faste strømmer fra én avsender mangler
+STROM_BORTE = "strom_borte"        # noen, men ikke alle, faste strømmer fra en avsender mangler
+UKJENT_ENHET = "ukjent_enhet"      # ny strøm fra en avsender som ikke finnes i baselinen
+SKANNING = "skanning"              # én avsender med mange nye mottakere eller porter
+NY_FORBINDELSE = "ny_forbindelse"  # kjent avsender med en ny strøm
+
+# Flooding: minst denne andelen av de faste strømmene er over grensen i samme vindu.
+FLOOD_ANDEL = 0.5
+# Skanning: minst så mange nye mottaker/port-par fra én avsender i samme vindu.
+SKANN_GRENSE = 5
 
 
 def strom_nokkel(rad):
@@ -129,6 +150,100 @@ def sammenlign(vinduer, baseline):
     return sorted(avvik, key=lambda a: (a["_time"], a["type"], a["src_ip"], a["dst_ip"], a["dst_port"]))
 
 
+def diagnoser(avvik, baseline):
+    """Tolker avvikene fra sammenlign() som mulige angrep, ett vindu om gangen.
+
+    Gir én rad per mulig angrep med _time, angrep (kode), src_ip, strom, bevis og avvik (antall avvik bak).
+    Et avvik kan bare føre til ett angrep: feil MAC trumfer høy rate på samme strøm,
+    og flooding trumfer økt sending på enkeltstrømmer i samme vindu.
+    """
+    faste = {s for s, fasit in baseline.items() if fasit["min_10s"] > 0}
+    faste_per_avsender = defaultdict(set)
+    for s in faste:
+        faste_per_avsender[s[0]].add(s)
+    kjente_avsendere = {s[0] for s in baseline}
+
+    per_vindu = defaultdict(list)
+    for a in avvik:
+        per_vindu[a["_time"]].append(a)
+
+    resultat = []
+    for tid in sorted(per_vindu):
+        liste = per_vindu[tid]
+        av_type = defaultdict(list)
+        for a in liste:
+            av_type[a["type"]].append(a)
+        hoy_rate = {strom_nokkel(a): a for a in av_type[FOR_HOY_RATE]}
+
+        # Spoofing: en kjent strøm fra feil MAC. Har den samtidig for høy rate, er pakker satt inn i tillegg.
+        spoofet = set()
+        for a in av_type[FEIL_MAC]:
+            strom = strom_nokkel(a)
+            spoofet.add(strom)
+            bevis = "Sendt fra %s, normalt %s" % (a["malt"], a["normal"])
+            if strom in hoy_rate:
+                bevis += "; %s pakker per %d s, normalt %s" % (hoy_rate[strom]["malt"], VINDU_SEKUNDER,
+                                                             hoy_rate[strom]["normal"])
+            resultat.append(_diagnose(tid, SPOOFING, a["src_ip"], _strom_tekst(strom), bevis,
+                                      2 if strom in hoy_rate else 1))
+
+        # Flooding hvis mange faste strømmer er over grensen samtidig, ellers økt sending per strøm.
+        over = [s for s in hoy_rate if s not in spoofet]
+        faste_over = [s for s in over if s in faste]
+        if faste and len(faste_over) >= FLOOD_ANDEL * len(faste):
+            avsendere = sorted({s[0] for s in faste_over})
+            resultat.append(_diagnose(tid, FLOODING, " ".join(avsendere), "",
+                                      "%d av %d faste strømmer over rate-grensen" % (len(faste_over), len(faste)),
+                                      len(over)))
+        else:
+            for s in over:
+                a = hoy_rate[s]
+                resultat.append(_diagnose(tid, OKT_SENDING, a["src_ip"], _strom_tekst(s),
+                                          "%s pakker per %d s, normalt %s" % (a["malt"], VINDU_SEKUNDER, a["normal"]),
+                                          1))
+
+        # Manglende strømmer, samlet per avsender: alle borte betyr at enheten er stille.
+        mangler = defaultdict(list)
+        for a in av_type[STROM_MANGLER]:
+            mangler[a["src_ip"]].append(strom_nokkel(a))
+        for src, strommer in sorted(mangler.items()):
+            if set(strommer) >= faste_per_avsender[src]:
+                resultat.append(_diagnose(tid, ENHET_STILLE, src, "",
+                                          "Alle %d faste strømmer mangler" % len(strommer), len(strommer)))
+            else:
+                for s in strommer:
+                    resultat.append(_diagnose(tid, STROM_BORTE, src, _strom_tekst(s),
+                                              "Ingen pakker, men alltid til stede i baselinen", 1))
+
+        # Nye strømmer, samlet per avsender: ukjent avsender, skanning eller ny forbindelse.
+        nye = defaultdict(list)
+        for a in av_type[NY_STROM]:
+            nye[a["src_ip"]].append(strom_nokkel(a))
+        for src, strommer in sorted(nye.items()):
+            maal = {(s[1], s[2]) for s in strommer}
+            if src not in kjente_avsendere:
+                resultat.append(_diagnose(tid, UKJENT_ENHET, src, _strom_tekst(strommer[0]),
+                                          "Avsenderen finnes ikke i baselinen, %d nye strømmer" % len(strommer),
+                                          len(strommer)))
+            elif len(maal) >= SKANN_GRENSE:
+                resultat.append(_diagnose(tid, SKANNING, src, "",
+                                          "%d nye mottaker/port-par i samme vindu" % len(maal), len(strommer)))
+            else:
+                for s in strommer:
+                    resultat.append(_diagnose(tid, NY_FORBINDELSE, src, _strom_tekst(s),
+                                              "Kjent avsender, ny strøm", 1))
+    return resultat
+
+
+def _strom_tekst(strom):
+    src_ip, dst_ip, dst_port, lengde = strom
+    return "%s → %s:%s (%s byte)" % (src_ip, dst_ip, dst_port, lengde)
+
+
+def _diagnose(tid, angrep, src_ip, strom, bevis, antall):
+    return {"_time": tid, "angrep": angrep, "src_ip": src_ip, "strom": strom, "bevis": bevis, "avvik": antall}
+
+
 def les_pakker_csv(sti):
     """Leser en pakkefil laget med tshark (samme format som testdata/capture.csv), bare UDP-pakkene."""
     pakker = []
@@ -170,7 +285,8 @@ def _hovedprogram():
     args = p.parse_args()
 
     vinduer = tell_vinduer(les_pakker_csv(args.pakkefil))
-    avvik = sammenlign(vinduer, les_baseline(args.baseline))
+    baseline = les_baseline(args.baseline)
+    avvik = sammenlign(vinduer, baseline)
 
     print("%d vinduer à %d s, %d avvik" % (len(vinduer), VINDU_SEKUNDER, len(avvik)))
     for type_, antall in Counter(a["type"] for a in avvik).most_common():
@@ -187,6 +303,18 @@ def _hovedprogram():
             tid, a["type"], a["src_ip"], a["dst_ip"], a["dst_port"], a["len"], a["malt"], a["normal"]))
     if vis_per_type is not None:
         print("(viser maks %d per type, bruk --alle for alt)" % vis_per_type)
+
+    diagnoser_ = diagnoser(avvik, baseline)
+    print("\nMulige angrep: %d" % len(diagnoser_))
+    for angrep_, antall in Counter(x["angrep"] for x in diagnoser_).most_common():
+        print("  %-15s %d vinduer" % (angrep_, antall))
+    vist = Counter()
+    for x in diagnoser_:
+        if vis_per_type is not None and vist[x["angrep"]] >= vis_per_type:
+            continue
+        vist[x["angrep"]] += 1
+        tid = datetime.datetime.fromtimestamp(x["_time"], datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        print("%s UTC  %-15s %s  %s  %s" % (tid, x["angrep"], x["src_ip"], x["strom"], x["bevis"]))
 
 
 if __name__ == "__main__":
