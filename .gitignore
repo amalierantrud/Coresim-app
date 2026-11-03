@@ -1,18 +1,15 @@
 # Personlig / hemmelig - aldri i Git
 splunk-dev/
 
-# Genereres av tools/build_app.py
-inf219_ot_anomaly/bin/otdiag/
-inf219_ot_anomaly/bin/lib/
-dist/
-
 # Endringer gjort i Splunk-nettleseren (kopier til default/ hvis de skal deles)
-inf219_ot_anomaly/local/
-inf219_testdata/local/
 **/metadata/local.meta
 ot_attack_detection/local/
-# Genererte testdata
+
+# Data (pcap, JSON, CSV): for store for Git, ligger bare lokalt
 testdata/
+
+# Ferdig pakket app (lages med tar, se README)
+dist/
 
 # Python / editor
 __pycache__/

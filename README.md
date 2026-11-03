@@ -18,14 +18,18 @@ Ekte data ligger på NORCE sin Splunk på OpenLab (`splunk.coresim.no`). Hver av
 
 ```
 coresim-app/
-├── ot_attack_detection/            Splunk-appen
-│   └── default/
-│       ├── app.conf                navn, beskrivelse og versjon
-│       ├── props.conf              trekker ut felt (IP, port, lengde) fra tcpdump-linjene
-│       └── data/ui/nav/default.xml menyen i appen
-├── docs/data.md                    kartlegging av dataene på coresim
-├── splunk-dev/                     din lokale Splunk (ikke i Git, se under)
-└── testdata/                       testfiler eksportert fra coresim (ikke i Git)
+├── ot_attack_detection/                 Splunk-appen
+│   ├── default/
+│   │   ├── app.conf                     navn, beskrivelse og versjon
+│   │   ├── indexes.conf                 indeksene baseline og capture
+│   │   ├── props.conf                   hvordan Splunk leser baseline- og angrepsdataene
+│   │   └── data/ui/
+│   │       ├── nav/default.xml          menyen i appen
+│   │       └── views/oversikt.xml       dashboardet
+│   └── lookups/baseline_trafikk.csv     normale trafikkmønstre, regnet ut fra baselinen
+├── docs/data.md                         kartlegging av dataene på coresim
+├── splunk-dev/                          din lokale Splunk (ikke i Git, se under)
+└── testdata/                            pcap- og datafiler fra NORCE (ikke i Git)
 ```
 
 Appen bygges opp ett steg om gangen.
@@ -127,14 +131,38 @@ Alle kommandoene kjøres i `coresim-app/splunk-dev`.
 
 ## Testdata
 
-Den lokale Splunk-en er tom. For å teste appen eksporterer du et lite utsnitt fra coresim og laster det opp:
+Den lokale Splunk-en er tom. Dataene ligger ikke i Git, så få filene fra gruppa og legg dem i `testdata/`.
+Start Splunk på nytt først, så indeksene og sourcetypene fra appen finnes. Last så opp med _Settings → Add Data → Upload_:
 
-1. På coresim: `index=anomaly_detection host=coresim-ws.openlab.local earliest="11/20/2025:12:00:00" latest="11/20/2025:12:01:00"`
-   → _Export_ → _Raw Events_. Lagre i `testdata/`.
-2. Lokalt: _Settings → Add Data → Upload_. Velg sourcetype `generic_single_line`, tidssone Oslo,
-   host «Constant value» `coresim-ws.openlab.local` og en ny indeks `anomaly_detection`.
+| Fil | Hva | Sourcetype | Indeks |
+| --- | --- | --- | --- |
+| `baseline_clean.json` | Normaltrafikk fra NORCE, 21.10.2026 | `baseline_json` | `baseline` |
+| `capture.csv` | Angrepsopptaket fra 29.09.2026 | `capture_csv` | `capture` |
 
-Da ser dataene lokalt ut som på coresim, og feltene fra `props.conf` virker likt begge steder.
+`capture.csv` lages fra `capture.pcap` med tshark (Wireshark):
+
+```powershell
+& "C:\Program Files\Wireshark\tshark.exe" -r capture.pcap -n -T fields -E header=n -E separator=, -E occurrence=f -e frame.time_epoch -e eth.src -e ip.src -e ip.dst -e udp.dstport -e udp.length -e frame.protocols | Out-File -Encoding ascii capture.csv
+```
+
+Last opp hver fil bare én gang, ellers blir pakkene dobbelt opp.
+
+## Pakke appen til coresim
+
+Dashboardet henter pakkene med makroen `` `ot_data` `` (`default/macros.conf`). Den søker i både `index=capture` (lokalt)
+og `index=anomaly_detection` (coresim). Hver Splunk har bare én av dem, så appen virker likt begge steder uten endringer.
+
+Kjør i `coresim-app`:
+
+```bash
+mkdir -Force dist; tar -czf dist/ot_attack_detection.tgz --exclude=local --exclude=metadata/local.meta --exclude=lib --exclude=default/indexes.conf ot_attack_detection
+```
+
+- `local/` og `local.meta` er dine egne innstillinger og skal ikke være med.
+- `indexes.conf` er utelatt, så appen ikke lager indeksene `baseline` og `capture` på NORCE sin Splunk.
+
+Installer med _Apps → Manage Apps → Install app from file_ (krever admin på coresim).
+Velg et kort tidsrom på coresim, for eksempel én time: `anomaly_detection` har over 100 millioner pakker.
 
 ## Når du endrer appen
 
