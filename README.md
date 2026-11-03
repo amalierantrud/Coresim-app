@@ -38,7 +38,9 @@ coresim-app/
 │   │           └── avvik.xml            dashboardet Avvik: avvik fra baselinen
 │   └── lookups/
 │       ├── baseline_trafikk.csv         fasiten: normal MAC og rate per strøm, fra baselinen
-│       └── angrepstyper.csv             navn, alvorlighet, MITRE og tiltak for hvert mulig angrep
+│       ├── angrepstyper.csv             navn, alvorlighet, MITRE og tiltak for hvert mulig angrep
+│       └── mitre_ics.csv                MITRE ATT&CK for ICS: taktikk, beskrivelse, MITRE sine tiltak, lenke
+├── tools/lag_mitre_ics.py               lager mitre_ics.csv fra MITRE sitt eget repo
 ├── tests/test_deteksjon.py              tester for reglene (python -m pytest tests)
 ├── docs/data.md                         kartlegging av dataene på coresim
 ├── splunk-dev/                          din lokale Splunk (ikke i Git, se under)
@@ -64,6 +66,9 @@ Diagnosen ser på alle avvikene i samme vindu og tolker dem som mulige angrep:
 | Ny strøm fra en kjent avsender | Ny forbindelse |
 
 Navn, alvorlighet, MITRE ATT&CK for ICS og tiltak står i `lookups/angrepstyper.csv` og kan endres uten å røre koden.
+Taktikk, MITRE sine tiltak og lenke hentes fra `lookups/mitre_ics.csv`. Den lages på nytt med `python tools/lag_mitre_ics.py`
+når MITRE kommer med en ny versjon. En test sjekker at alle MITRE-numrene i `angrepstyper.csv` fortsatt finnes,
+siden MITRE av og til erstatter teknikker (i versjon 20 ble T0855 og T0856 til T1692.001 og T1692.002).
 
 - **I Splunk:** dashboardet Avvik bruker kommandoene `| finnavvik` og `| diagnoser`.
 - **Fra kommandolinja:** `python ot_attack_detection/bin/deteksjon.py testdata/capture.csv`
