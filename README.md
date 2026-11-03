@@ -19,20 +19,37 @@ Ekte data ligger på NORCE sin Splunk på OpenLab (`splunk.coresim.no`). Hver av
 ```
 coresim-app/
 ├── ot_attack_detection/                 Splunk-appen
+│   ├── bin/
+│   │   ├── deteksjon.py                 reglene: ny strøm, feil MAC, for høy rate, strøm mangler
+│   │   ├── finnavvik.py                 søkekommandoen | finnavvik, kjører reglene inne i Splunk
+│   │   └── splunklib/                   Splunk sitt Python-SDK 2.1.1 (kopiert fra Splunk, ikke endret)
 │   ├── default/
 │   │   ├── app.conf                     navn, beskrivelse og versjon
+│   │   ├── commands.conf                registrerer finnavvik
 │   │   ├── indexes.conf                 indeksene baseline og capture
-│   │   ├── props.conf                   hvordan Splunk leser baseline- og angrepsdataene
+│   │   ├── macros.conf                  ot_data: hvor trafikken hentes fra (lokalt eller coresim)
+│   │   ├── props.conf                   hvordan Splunk leser baseline-, angreps- og coresim-dataene
+│   │   ├── savedsearches.conf           «Lag baseline»: lager lookups/baseline_trafikk.csv
 │   │   └── data/ui/
 │   │       ├── nav/default.xml          menyen i appen
-│   │       └── views/oversikt.xml       dashboardet
-│   └── lookups/baseline_trafikk.csv     normale trafikkmønstre, regnet ut fra baselinen
+│   │       └── views/oversikt.xml       dashboardet, med avvik øverst
+│   └── lookups/baseline_trafikk.csv     fasiten: normal MAC og rate per strøm, fra baselinen
+├── tests/test_deteksjon.py              tester for reglene (python -m pytest tests)
 ├── docs/data.md                         kartlegging av dataene på coresim
 ├── splunk-dev/                          din lokale Splunk (ikke i Git, se under)
 └── testdata/                            pcap- og datafiler fra NORCE (ikke i Git)
 ```
 
-Appen bygges opp ett steg om gangen.
+## Deteksjonen
+
+Trafikken deles i 10-sekundersvinduer per strøm (avsender, mottaker, port, størrelse) og sammenlignes med
+`lookups/baseline_trafikk.csv`. Reglene står i `bin/deteksjon.py`, og grensene (`FAKTOR`, `MARGIN`) øverst i filen.
+
+- **I Splunk:** panelene øverst på Oversikt bruker kommandoen `| finnavvik`.
+- **Fra kommandolinja:** `python ot_attack_detection/bin/deteksjon.py testdata/capture.csv`
+- **Tester:** `python -m pytest tests`
+
+Kjent begrensning: `capture.pcap` har hver pakke omtrent fem ganger, så «For høy rate» slår ut på alt i det opptaket.
 
 ## Kom i gang
 
@@ -155,7 +172,7 @@ og `index=anomaly_detection` (coresim). Hver Splunk har bare én av dem, så app
 Kjør i `coresim-app`:
 
 ```bash
-mkdir -Force dist; tar -czf dist/ot_attack_detection.tgz --exclude=local --exclude=metadata/local.meta --exclude=lib --exclude=default/indexes.conf ot_attack_detection
+mkdir -Force dist; tar -czf dist/ot_attack_detection.tgz --exclude=local --exclude=metadata/local.meta --exclude=lib --exclude=__pycache__ --exclude=default/indexes.conf ot_attack_detection
 ```
 
 - `local/` og `local.meta` er dine egne innstillinger og skal ikke være med.

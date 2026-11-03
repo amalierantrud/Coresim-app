@@ -6,7 +6,7 @@
 
   <!-- Felles søk for nettverkspanelene. Henter pakkene én gang og teller dem per minutt per strøm,
        så panelene under bare regner videre på resultatet i stedet for å søke hver for seg.
-       Det gir 2 søk i stedet for 7, som er viktig på coresim der en bruker bare kan kjøre 3 samtidig.
+       Sammen med avvikssøket og host-panelet blir det 3 søk, som er det en bruker kan kjøre samtidig på coresim.
        Pakker uten IP (ARP, STP osv.) får "-", ellers ville stats droppet dem. -->
   <search id="trafikk">
     <query>`ot_data`
@@ -17,7 +17,22 @@
     <latest>$tid.latest$</latest>
   </search>
 
-  <!-- Tidsvelger. Alle panelene bruker valget gjennom $tid.earliest$ og $tid.latest$. -->
+  <!-- Felles søk for avvikspanelene. Teller pakker per strøm per 10 sekunder og lar finnavvik
+       (bin/finnavvik.py og bin/deteksjon.py) sammenligne hvert vindu med lookups/baseline_trafikk.csv.
+       Tar med alle pakker med port og lengde, også HSRP, som er UDP men har egen protokoll. -->
+  <search id="avvik">
+    <query>`ot_data` src_ip=* dst_port=* len=*
+| bin _time span=10s
+| stats count AS n values(src_mac) AS src_mac by _time src_ip dst_ip dst_port len
+| eval src_mac=mvjoin(src_mac, " ")
+| finnavvik</query>
+    <earliest>$tid.earliest$</earliest>
+    <latest>$tid.latest$</latest>
+  </search>
+
+  <!-- Tidsvelger. Alle panelene bruker valget gjennom $tid.earliest$ og $tid.latest$.
+       Grafene per minutt bruker cont=false og makecontinuous: da fylles bare hull mellom første og siste minutt
+       med data, ikke hele veien fra 1970 når tidsrommet er All time. -->
   <fieldset submitButton="false">
     <input type="time" token="tid">
       <label>Tidsrom</label>
@@ -29,11 +44,60 @@
   </fieldset>
   <row>
     <panel>
+      <title>Avvik fra baseline</title>
+      <!-- Antall 10-sekundersvinduer der en strøm avviker fra baselinen. Grønn ved 0, rød ellers. -->
+      <single>
+        <search base="avvik">
+          <query>stats count AS avvik</query>
+        </search>
+        <option name="useColors">1</option>
+        <option name="colorBy">value</option>
+        <option name="rangeValues">[0]</option>
+        <option name="rangeColors">["0x53a051","0xdc4e41"]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>Avvik over tid</title>
+      <!-- Avvik per minutt, delt etter type. Se etter en type som dukker opp eller øker plutselig. -->
+      <chart>
+        <search base="avvik">
+          <query>timechart span=1m cont=false count by type
+| makecontinuous _time span=1m
+| fillnull value=0</query>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.legend.placement">bottom</option>
+      </chart>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Liste over avvik</title>
+      <!-- Én rad per type avvik og strøm, med første og siste gang og hvor mange vinduer det gjelder.
+           Målt er det høyeste antallet pakker (rate) eller MAC-en som ble sett (feil MAC). -->
+      <table>
+        <search base="avvik">
+          <query>eval strom=src_ip." → ".dst_ip.":".dst_port." (".len." byte)"
+| stats count AS vinduer min(_time) AS forste max(_time) AS siste max(malt) AS malt first(normal) AS normal first(forklaring) AS forklaring by type strom
+| sort type -vinduer
+| eval forste=strftime(forste, "%Y-%m-%d %H:%M:%S"), siste=strftime(siste, "%Y-%m-%d %H:%M:%S")
+| rename type AS "Avvik", strom AS "Strøm", vinduer AS "Vinduer", forste AS "Første", siste AS "Siste", malt AS "Målt", normal AS "Normalt", forklaring AS "Forklaring"</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">10</option>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
       <title>Pakker per minutt</title>
       <!-- All trafikk samlet. Se etter topper, fall eller brudd i linja. -->
       <chart>
         <search base="trafikk">
-          <query>timechart span=1m sum(count) as pakker</query>
+          <query>timechart span=1m cont=false sum(count) as pakker
+| makecontinuous _time span=1m
+| fillnull value=0</query>
         </search>
         <option name="charting.chart">line</option>
         <option name="charting.legend.placement">none</option>
@@ -47,7 +111,9 @@
       <chart>
         <search base="trafikk">
           <query>where src_ip!="-"
-| timechart span=1m sum(count) by src_ip</query>
+| timechart span=1m cont=false sum(count) by src_ip
+| makecontinuous _time span=1m
+| fillnull value=0</query>
         </search>
         <option name="charting.chart">line</option>
         <option name="charting.legend.placement">right</option>
@@ -77,7 +143,9 @@
       <chart>
         <search base="trafikk">
           <query>where protokoll!="-"
-| timechart span=1m sum(count) by protokoll</query>
+| timechart span=1m cont=false sum(count) by protokoll
+| makecontinuous _time span=1m
+| fillnull value=0</query>
         </search>
         <option name="charting.chart">line</option>
         <option name="charting.legend.placement">right</option>
@@ -92,7 +160,9 @@
       <chart>
         <search base="trafikk">
           <query>where src_ip!="-"
-| timechart span=1m dc(dst_ip) by src_ip</query>
+| timechart span=1m cont=false dc(dst_ip) by src_ip
+| makecontinuous _time span=1m
+| fillnull value=0</query>
         </search>
         <option name="charting.chart">line</option>
         <option name="charting.legend.placement">right</option>
@@ -104,7 +174,9 @@
       <chart>
         <search base="trafikk">
           <query>where src_ip!="-" AND dst_port!="-"
-| timechart span=1m dc(dst_port) by src_ip</query>
+| timechart span=1m cont=false dc(dst_port) by src_ip
+| makecontinuous _time span=1m
+| fillnull value=0</query>
         </search>
         <option name="charting.chart">line</option>
         <option name="charting.legend.placement">right</option>
@@ -133,7 +205,9 @@
       <chart>
         <search>
           <query>index=main host=coresim-ws
-| timechart span=1m count as hendelser</query>
+| timechart span=1m cont=false count as hendelser
+| makecontinuous _time span=1m
+| fillnull value=0</query>
           <earliest>$tid.earliest$</earliest>
           <latest>$tid.latest$</latest>
         </search>
