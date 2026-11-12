@@ -6,7 +6,7 @@ Reglene ligger i deteksjon.diagnoser(). Navn, alvorlighet og MITRE hentes etterp
 Bruk:
     ... | finnavvik
     | diagnoser
-    | lookup angrepstyper.csv angrep OUTPUT navn alvorlighet mitre_id mitre_navn forklaring tiltak
+    | lookup angrepstyper.csv angrep OUTPUT navn alvorlighet mitre_id mitre_navn forklaring forste_steg tiltak
 """
 
 import os

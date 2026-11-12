@@ -2,7 +2,7 @@
      Pakkene telles per strøm per 10 sekunder, og kommandoen finnavvik (bin/finnavvik.py og bin/deteksjon.py)
      sammenligner hvert vindu med lookups/baseline_trafikk.csv. Reglene og grensene er forklart i README.
      Pakkene hentes med makroen ot_data (macros.conf), så samme dashboard virker lokalt og på coresim. -->
-<dashboard version="1.1">
+<dashboard version="1.1" script="lukkbar.js">
   <label>Avvik</label>
 
   <!-- Felles søk for alle panelene, så dashboardet bare kjører ett søk.
@@ -31,66 +31,12 @@
       <choice value="*">Alle</choice>
       <choice value="Feil MAC">Feil MAC</choice>
       <choice value="For høy rate">For høy rate</choice>
+      <choice value="For lav rate">For lav rate</choice>
       <choice value="Ny strøm">Ny strøm</choice>
       <choice value="Strøm mangler">Strøm mangler</choice>
       <default>*</default>
     </input>
   </fieldset>
-
-  <!-- Diagnose: avvikene i samme vindu tolkes som mulige angrep av kommandoen diagnoser (bin/deteksjon.py).
-       Navn, alvorlighet, MITRE-nummer og våre tiltak hentes fra lookups/angrepstyper.csv,
-       taktikk, MITRE sine tiltak og lenke fra lookups/mitre_ics.csv (laget med tools/lag_mitre_ics.py).
-       Viser alle typer avvik, uavhengig av filteret på type. Klikk en rad for å åpne teknikken hos MITRE. -->
-  <row>
-    <panel>
-      <title>Mulige angrep</title>
-      <table>
-        <search base="avvik">
-          <query>diagnoser
-| lookup angrepstyper.csv angrep OUTPUT navn alvorlighet rekkefolge mitre_id mitre_navn forklaring tiltak
-| lookup mitre_ics.csv mitre_id OUTPUT taktikk mitre_tiltak url
-| fillnull value="-" strom
-| stats count AS vinduer min(_time) AS forste max(_time) AS siste values(src_ip) AS avsendere first(bevis) AS bevis
-    first(alvorlighet) AS alvorlighet first(rekkefolge) AS rekkefolge first(mitre_id) AS mitre_id first(mitre_navn) AS mitre_navn
-    first(taktikk) AS taktikk first(forklaring) AS forklaring first(tiltak) AS tiltak first(mitre_tiltak) AS mitre_tiltak
-    first(url) AS url by navn strom
-| sort rekkefolge -vinduer
-| eval mitre=mitre_id." ".mitre_navn, forste=strftime(forste, "%Y-%m-%d %H:%M:%S"), siste=strftime(siste, "%Y-%m-%d %H:%M:%S")
-| table navn alvorlighet taktikk strom avsendere vinduer forste siste bevis mitre forklaring tiltak mitre_tiltak url
-| rename navn AS "Mulig angrep", alvorlighet AS "Alvorlighet", taktikk AS "Taktikk (MITRE)", strom AS "Strøm",
-    avsendere AS "Avsender", vinduer AS "Vinduer", forste AS "Første", siste AS "Siste", bevis AS "Bevis (første vindu)",
-    mitre AS "MITRE ATT&amp;CK for ICS", forklaring AS "Hva det betyr", tiltak AS "Tiltak", mitre_tiltak AS "MITRE sine tiltak",
-    url AS "Lenke"</query>
-        </search>
-        <drilldown>
-          <link target="_blank">$row.Lenke|n$</link>
-        </drilldown>
-        <option name="count">10</option>
-        <option name="wrap">true</option>
-        <format type="color" field="Alvorlighet">
-          <colorPalette type="map">{"Høy":#DC4E41,"Middels":#F1813F,"Lav":#F8BE34}</colorPalette>
-        </format>
-      </table>
-    </panel>
-  </row>
-  <row>
-    <panel>
-      <title>Mulige angrep over tid</title>
-      <!-- Antall 10-sekundersvinduer per minutt med hvert mulig angrep. -->
-      <chart>
-        <search base="avvik">
-          <query>diagnoser
-| lookup angrepstyper.csv angrep OUTPUT navn
-| timechart span=1m cont=false count by navn
-| makecontinuous _time span=1m
-| fillnull value=0</query>
-        </search>
-        <option name="charting.chart">column</option>
-        <option name="charting.chart.stackMode">stacked</option>
-        <option name="charting.legend.placement">bottom</option>
-      </chart>
-    </panel>
-  </row>
 
   <!-- Ett tall per type: antall 10-sekundersvinduer med avvik. Grønn ved 0, rød ellers. -->
   <row>
@@ -111,6 +57,18 @@
       <single>
         <search base="avvik">
           <query>stats count(eval(type=="For høy rate")) AS avvik</query>
+        </search>
+        <option name="useColors">1</option>
+        <option name="colorBy">value</option>
+        <option name="rangeValues">[0]</option>
+        <option name="rangeColors">["0x53a051","0xdc4e41"]</option>
+      </single>
+    </panel>
+    <panel>
+      <title>For lav rate</title>
+      <single>
+        <search base="avvik">
+          <query>stats count(eval(type=="For lav rate")) AS avvik</query>
         </search>
         <option name="useColors">1</option>
         <option name="colorBy">value</option>
@@ -143,7 +101,81 @@
       </single>
     </panel>
   </row>
+
+  <!-- Diagnose: avvikene i samme vindu tolkes som mulige angrep av kommandoen diagnoser (bin/deteksjon.py).
+       Navn, alvorlighet og MITRE-nummer hentes fra lookups/angrepstyper.csv.
+       Forklaring, tiltak og MITRE sine tiltak vises på siden Detaljer.
+       Viser alle typer avvik, uavhengig av filteret på type.
+       Tabellen viser bare oversikten (<fields>). Klikk en rad for å se forklaring, tiltak og trafikken på siden Detaljer.
+       Panelet er lukket til man trykker på pilen ved overskriften (appserver/static/lukkbar.js). Lukket viser det antallet. -->
+  <search base="avvik">
+    <query>diagnoser
+| lookup angrepstyper.csv angrep OUTPUT navn alvorlighet
+| fillnull value="-" strom
+| stats first(alvorlighet) AS alvorlighet by navn strom
+| stats count AS antall count(eval(alvorlighet=="Høy")) AS hoy</query>
+    <done>
+      <set token="n_angrep">$result.antall$</set>
+      <set token="n_hoy">$result.hoy$</set>
+    </done>
+  </search>
   <row>
+    <panel id="lukkbar_angrep">
+      <title>Mulige angrep</title>
+      <html rejects="$vis_angrep$">
+        <p class="lukkbar-hint" style="cursor: pointer; margin: 0;">
+          <b>$n_angrep$</b> mulige angrep, <b>$n_hoy$</b> med høy alvorlighet. Trykk på pilen for å vise dem.
+        </p>
+      </html>
+      <html depends="$vis_angrep$">
+        <p style="margin: 0;">Klikk en rad for detaljer.</p>
+      </html>
+      <table depends="$vis_angrep$">
+        <search base="avvik">
+          <query>diagnoser
+| lookup angrepstyper.csv angrep OUTPUT navn alvorlighet rekkefolge mitre_id mitre_navn
+| fillnull value="-" strom
+| stats count AS vinduer min(_time) AS forste max(_time) AS siste values(src_ip) AS avsendere
+    first(alvorlighet) AS alvorlighet first(rekkefolge) AS rekkefolge first(mitre_id) AS mitre_id first(mitre_navn) AS mitre_navn
+    by navn strom
+| sort rekkefolge -vinduer
+| eval mitre=mitre_id." ".mitre_navn, id=navn, velg=if(strom=="-", "Alt fra ".mvindex(avsendere, 0), strom),
+    vis_fra=forste - 300, vis_til=siste + 300, forste=strftime(forste, "%d.%m %H:%M:%S"), siste=strftime(siste, "%d.%m %H:%M:%S")
+| table navn alvorlighet strom avsendere vinduer forste siste mitre id velg vis_fra vis_til
+| rename navn AS "Mulig angrep", alvorlighet AS "Alvorlighet", strom AS "Strøm", avsendere AS "Avsender",
+    vinduer AS "Vinduer", forste AS "Første", siste AS "Siste", mitre AS "MITRE"</query>
+        </search>
+        <fields>["Mulig angrep","Alvorlighet","Strøm","Avsender","Vinduer","Første","Siste","MITRE"]</fields>
+        <!-- Klikk en rad for å åpne siden Detaljer for angrepet, med trafikken 5 min før og etter. -->
+        <drilldown>
+          <link target="_self">detaljer?form.navn=$row.id|u$&amp;form.strom=$row.velg|u$&amp;form.vis.earliest=$row.vis_fra$&amp;form.vis.latest=$row.vis_til$&amp;form.tid.earliest=$tid.earliest|u$&amp;form.tid.latest=$tid.latest|u$</link>
+        </drilldown>
+        <option name="count">10</option>
+        <option name="wrap">true</option>
+        <format type="color" field="Alvorlighet">
+          <colorPalette type="map">{"Høy":#DC4E41,"Middels":#F1813F,"Lav":#F8BE34}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+  <!-- Grafene side om side: mulige angrep og rå avvik per minutt. -->
+  <row>
+    <panel>
+      <title>Mulige angrep over tid</title>
+      <!-- Antall 10-sekundersvinduer per minutt med hvert mulig angrep. -->
+      <chart>
+        <search base="avvik">
+          <query>diagnoser
+| lookup angrepstyper.csv angrep OUTPUT navn
+| timechart span=1m cont=false count by navn
+| makecontinuous _time span=1m
+| fillnull value=0</query>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.legend.placement">bottom</option>
+      </chart>
+    </panel>
     <panel>
       <title>Avvik over tid</title>
       <!-- Avvik per minutt, delt etter type. Se etter en type som dukker opp eller øker plutselig.
@@ -161,21 +193,44 @@
       </chart>
     </panel>
   </row>
+  <!-- Antall rader i «Liste over avvik», vist når panelet er lukket. Følger filteret på type. -->
+  <search base="avvik">
+    <query>search type="$type$"
+| stats count AS vinduer by type src_ip dst_ip dst_port len
+| stats count AS antall dc(type) AS typer</query>
+    <done>
+      <set token="n_avvik">$result.antall$</set>
+      <set token="n_avvik_typer">$result.typer$</set>
+    </done>
+  </search>
   <row>
-    <panel>
+    <panel id="lukkbar_avvik">
       <title>Liste over avvik</title>
       <!-- Én rad per type avvik og strøm, med første og siste gang og hvor mange vinduer det gjelder.
-           Målt er det høyeste antallet pakker per 10 s (rate) eller MAC-en som ble sett (feil MAC). -->
-      <table>
+           Målt er det høyeste antallet pakker per 10 s (rate) eller MAC-en som ble sett (feil MAC).
+           Lukket til man trykker på pilen ved overskriften (appserver/static/lukkbar.js), som «Mulige angrep». -->
+      <html rejects="$vis_avvik$">
+        <p class="lukkbar-hint" style="cursor: pointer; margin: 0;">
+          <b>$n_avvik$</b> avvik fordelt på <b>$n_avvik_typer$</b> typer. Trykk på pilen for å vise dem.
+        </p>
+      </html>
+      <html depends="$vis_avvik$">
+        <p style="margin: 0;">Avvikene diagnosen bygger på, én rad per type og strøm. Klikk en rad for å se trafikken.</p>
+      </html>
+      <table depends="$vis_avvik$">
         <search base="avvik">
           <query>search type="$type$"
 | eval strom=src_ip." → ".dst_ip.":".dst_port." (".len." byte)"
 | stats count AS vinduer min(_time) AS forste max(_time) AS siste max(malt) AS malt first(normal) AS normal first(forklaring) AS forklaring by type strom
 | sort type -vinduer
-| eval forste=strftime(forste, "%Y-%m-%d %H:%M:%S"), siste=strftime(siste, "%Y-%m-%d %H:%M:%S")
+| eval velg=strom, vis_fra=forste - 300, vis_til=siste + 300, forste=strftime(forste, "%d.%m %H:%M:%S"), siste=strftime(siste, "%d.%m %H:%M:%S")
 | rename type AS "Avvik", strom AS "Strøm", vinduer AS "Vinduer", forste AS "Første", siste AS "Siste", malt AS "Målt", normal AS "Normalt", forklaring AS "Forklaring"</query>
         </search>
-        <option name="drilldown">none</option>
+        <fields>["Avvik","Strøm","Vinduer","Første","Siste","Målt","Normalt","Forklaring"]</fields>
+        <!-- Klikk en rad for å åpne siden Detaljer for strømmen (uten angrep), med trafikken 5 min før og etter. -->
+        <drilldown>
+          <link target="_self">detaljer?form.strom=$row.velg|u$&amp;form.vis.earliest=$row.vis_fra$&amp;form.vis.latest=$row.vis_til$&amp;form.tid.earliest=$tid.earliest|u$&amp;form.tid.latest=$tid.latest|u$</link>
+        </drilldown>
         <option name="count">20</option>
       </table>
     </panel>

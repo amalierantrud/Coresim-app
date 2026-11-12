@@ -1,0 +1,232 @@
+<!-- Detaljer: én side per mulig angrep eller avvik, åpnes ved å klikke en rad på Avvik.
+     Avvik sender med tokenene i URL-en: navn (mulig angrep, tom for vanlige avvik), strom (strømmen eller «Alt fra <ip>»),
+     tid (samme tidsrom som på Avvik, så diagnosen blir lik) og vis (tidsrommet grafen viser, 5 min før og etter).
+     Siden er ikke i menyen (nav/default.xml), siden den bare gir mening med en valgt rad. -->
+<dashboard version="1.1">
+  <label>Detaljer</label>
+
+  <!-- Samme søk som på Avvik, over samme tidsrom, så bevis og antall vinduer stemmer med tabellen der. -->
+  <search id="avvik">
+    <query>`ot_data` src_ip=* dst_port=* len=*
+| bin _time span=10s
+| stats count AS n values(src_mac) AS src_mac by _time src_ip dst_ip dst_port len
+| eval src_mac=mvjoin(src_mac, " ")
+| finnavvik</query>
+    <earliest>$tid.earliest$</earliest>
+    <latest>$tid.latest$</latest>
+  </search>
+
+  <!-- Det mulige angrepet: oppsummering, forklaring og tiltak. Bare når siden er åpnet fra «Mulige angrep».
+       Verdiene hentes med <done> fra søket og settes inn i teksten i panelet under. -->
+  <search base="avvik">
+    <query>diagnoser
+| lookup angrepstyper.csv angrep OUTPUT navn alvorlighet mitre_id mitre_navn forklaring forste_steg tiltak
+| lookup mitre_ics.csv mitre_id OUTPUT taktikk url
+| search navn="$navn$"
+| fillnull value="-" strom
+| stats count AS vinduer min(_time) AS forste max(_time) AS siste values(src_ip) AS avsendere first(bevis) AS bevis
+    first(alvorlighet) AS alvorlighet first(mitre_id) AS mitre_id first(mitre_navn) AS mitre_navn
+    first(taktikk) AS taktikk first(forklaring) AS forklaring first(forste_steg) AS forste_steg first(tiltak) AS tiltak
+    first(url) AS url by navn strom
+| eval velg=if(strom=="-", "Alt fra ".mvindex(avsendere, 0), strom)
+| search velg="$strom$"
+| eval avsendere=mvjoin(avsendere, ", "), forste=strftime(forste, "%d.%m.%Y %H:%M:%S"), siste=strftime(siste, "%d.%m.%Y %H:%M:%S")</query>
+    <done>
+      <set token="d_alvorlighet">$result.alvorlighet$</set>
+      <set token="d_avsendere">$result.avsendere$</set>
+      <set token="d_vinduer">$result.vinduer$</set>
+      <set token="d_forste">$result.forste$</set>
+      <set token="d_siste">$result.siste$</set>
+      <set token="d_mitre">$result.mitre_id$ $result.mitre_navn$</set>
+      <set token="d_url">$result.url$</set>
+      <set token="d_taktikk">$result.taktikk$</set>
+      <set token="d_bevis">$result.bevis$</set>
+      <set token="d_forklaring">$result.forklaring$</set>
+      <set token="d_mitre_id">$result.mitre_id$</set>
+      <set token="d_forste_steg">$result.forste_steg$</set>
+      <set token="d_tiltak">$result.tiltak$</set>
+    </done>
+  </search>
+
+  <!-- Skjulte felt som bare fylles fra URL-en. -->
+  <fieldset submitButton="false">
+    <input type="text" token="navn" depends="$skjult$">
+      <label>Mulig angrep</label>
+    </input>
+    <input type="time" token="tid" depends="$skjult$">
+      <label>Tidsrom</label>
+      <default>
+        <earliest>0</earliest>
+        <latest>now</latest>
+      </default>
+    </input>
+  </fieldset>
+
+  <row>
+    <panel>
+      <html>
+        <p style="font-size: 15px;">
+          <a href="avvik?form.tid.earliest=$tid.earliest|u$&amp;form.tid.latest=$tid.latest|u$">← Tilbake til Avvik</a>
+        </p>
+      </html>
+    </panel>
+  </row>
+
+  <row depends="$navn$">
+    <panel>
+      <title>$navn$</title>
+      <html>
+        <p><b>Alvorlighet:</b> $d_alvorlighet$ · <b>Avsender:</b> $d_avsendere$ · <b>Strøm:</b> $strom$</p>
+        <p><b>Når:</b> $d_forste$ til $d_siste$ ($d_vinduer$ vinduer à 10 s)</p>
+        <p><b>MITRE:</b> <a href="$d_url|n$" target="_blank">$d_mitre$</a> · <b>Taktikk:</b> $d_taktikk$</p>
+        <p><b>Bevis (første vindu):</b> $d_bevis$</p>
+        <h3>Hva det betyr</h3>
+        <p>$d_forklaring$</p>
+        <h3>Første steg</h3>
+        <p>$d_forste_steg$</p>
+        <h3>Tiltak (fra MITRE)</h3>
+        <p>$d_tiltak$</p>
+      </html>
+    </panel>
+  </row>
+
+  <!-- MITRE sine tiltak for teknikken, med MITRE sin egen tekst om hvordan hvert tiltak hjelper mot akkurat den.
+       Fra lookups/mitre_tiltak.csv (laget med tools/lag_mitre_ics.py). Klikk en rad for å åpne tiltaket hos MITRE. -->
+  <row depends="$d_mitre_id$">
+    <panel>
+      <title>MITRE sine tiltak for $d_mitre$</title>
+      <table>
+        <search>
+          <query>| inputlookup mitre_tiltak.csv where mitre_id="$d_mitre_id$"
+| table tiltak_id tiltak_navn hvordan tiltak_url
+| rename tiltak_id AS "Tiltak", tiltak_navn AS "Navn", hvordan AS "Hvordan (MITRE)"</query>
+        </search>
+        <fields>["Tiltak","Navn","Hvordan (MITRE)"]</fields>
+        <drilldown>
+          <link target="_blank">$row.tiltak_url|n$</link>
+        </drilldown>
+        <option name="wrap">true</option>
+        <option name="count">10</option>
+      </table>
+    </panel>
+  </row>
+
+  <!-- Trafikk mot normalen: pakker per 10 s for én strøm (eller alt fra én avsender), med normalområdet fra baselinen.
+       Grensene er de samme som i bin/deteksjon.py: snitt ± Z_GRENSE (4) · max(stdev, MIN_STD (2)).
+       Nedre grense gjelder bare faste strømmer (min_10s over 0), ellers er den 0.
+       For «Alt fra <ip>» er grensene summen av grensene for avsenderens strømmer, så de er bare omtrentlige. -->
+  <row>
+    <panel>
+      <title>Trafikk mot normalen</title>
+      <input type="dropdown" token="strom" searchWhenChanged="true">
+        <label>Strøm</label>
+        <fieldForLabel>etikett</fieldForLabel>
+        <fieldForValue>strom</fieldForValue>
+        <search>
+          <query>| inputlookup baseline_trafikk.csv
+| fields src_ip dst_ip dst_port len
+| eval kjent="ja"
+| append [search `ot_data` src_ip=* dst_port=* len=* | stats count by src_ip dst_ip dst_port len | fields - count]
+| stats values(kjent) AS kjent by src_ip dst_ip dst_port len
+| eval strom=src_ip." → ".dst_ip.":".dst_port." (".len." byte)", etikett=strom.if(isnull(kjent), "  (ikke i baselinen)", "")
+| appendpipe [stats count by src_ip | eval strom="Alt fra ".src_ip, etikett=strom, len=-1]
+| sort src_ip len strom
+| table etikett strom</query>
+          <earliest>$tid.earliest$</earliest>
+          <latest>$tid.latest$</latest>
+        </search>
+      </input>
+      <input type="time" token="vis" searchWhenChanged="true">
+        <label>Vis tidsrom</label>
+        <default>
+          <earliest>0</earliest>
+          <latest>now</latest>
+        </default>
+      </input>
+      <html depends="$strom$">
+        <p>Blå: normal trafikk. Rød: utenfor normalen. Oransje: strømmen finnes ikke i baselinen.
+           Linjene viser snittet og grensene fra baselinen. Søyler på 0 under nedre grense betyr at strømmen mangler.</p>
+      </html>
+      <html rejects="$strom$">
+        <p>Velg en strøm.</p>
+      </html>
+      <chart depends="$strom$">
+        <title>Pakker per 10 s: $strom$</title>
+        <search>
+          <query><![CDATA[`ot_data` src_ip=* dst_port=* len=*
+    [| makeresults | eval s="$strom$"
+     | rex field=s "^(Alt fra (?<a>\S+)|(?<src_ip>\S+) → (?<dst_ip>[^:]+):(?<dst_port>\d+) \((?<len>\d+) byte\))$"
+     | eval src_ip=coalesce(src_ip, a) | fields src_ip dst_ip dst_port len]
+| timechart span=10s cont=false count AS Pakker
+| makecontinuous _time span=10s
+| fillnull value=0 Pakker
+| appendcols
+    [| inputlookup baseline_trafikk.csv
+     | search
+        [| makeresults | eval s="$strom$"
+         | rex field=s "^(Alt fra (?<a>\S+)|(?<src_ip>\S+) → (?<dst_ip>[^:]+):(?<dst_port>\d+) \((?<len>\d+) byte\))$"
+         | eval src_ip=coalesce(src_ip, a) | fields src_ip dst_ip dst_port len]
+     | eval sd=max(stdev_10s, 2), ovre=snitt_10s + 4*sd, nedre=if(min_10s > 0, max(snitt_10s - 4*sd, 0), 0)
+     | stats sum(snitt_10s) AS snitt sum(ovre) AS ovre sum(nedre) AS nedre]
+| eventstats max(snitt) AS snitt max(ovre) AS ovre max(nedre) AS nedre
+| eval kategori=case(isnull(snitt), "Ikke i baselinen", Pakker > ovre OR Pakker < nedre, "Utenfor normalen", true(), "Normal")
+| eval Normal=if(kategori=="Normal", Pakker, null()), "Utenfor normalen"=if(kategori=="Utenfor normalen", Pakker, null()),
+    "Ikke i baselinen"=if(kategori=="Ikke i baselinen", Pakker, null()),
+    Snitt=round(snitt, 1), "Øvre grense"=round(ovre, 1), "Nedre grense"=round(nedre, 1)
+| table _time Normal "Utenfor normalen" "Ikke i baselinen" Snitt "Øvre grense" "Nedre grense"]]></query>
+          <earliest>$vis.earliest$</earliest>
+          <latest>$vis.latest$</latest>
+        </search>
+        <option name="charting.chart">column</option>
+        <option name="charting.chart.stackMode">stacked</option>
+        <option name="charting.chart.overlayFields">Snitt,Øvre grense,Nedre grense</option>
+        <option name="charting.fieldColors">{"Normal":0x1E93C6,"Utenfor normalen":0xDC4E41,"Ikke i baselinen":0xF1813F,"Snitt":0x53A051,"Øvre grense":0x708794,"Nedre grense":0x708794}</option>
+        <option name="charting.axisTitleX.visibility">collapsed</option>
+        <option name="charting.axisTitleY.text">Pakker per 10 s</option>
+        <option name="charting.legend.placement">bottom</option>
+        <option name="height">320</option>
+      </chart>
+      <!-- Hvilke maskiner (MAC) som sendte. En MAC som ikke er i baselinen er tegn på spoofing. -->
+      <table depends="$strom$">
+        <title>Avsender-MAC i tidsrommet</title>
+        <search>
+          <query><![CDATA[`ot_data` src_ip=* dst_port=* len=*
+    [| makeresults | eval s="$strom$"
+     | rex field=s "^(Alt fra (?<a>\S+)|(?<src_ip>\S+) → (?<dst_ip>[^:]+):(?<dst_port>\d+) \((?<len>\d+) byte\))$"
+     | eval src_ip=coalesce(src_ip, a) | fields src_ip dst_ip dst_port len]
+| stats count AS pakker min(_time) AS forste max(_time) AS siste by src_ip src_mac
+| lookup baseline_trafikk.csv src_ip src_mac OUTPUT kjent
+| eval kjent=if(isnull(kjent), "Nei", "Ja"), forste=strftime(forste, "%d.%m %H:%M:%S"), siste=strftime(siste, "%d.%m %H:%M:%S")
+| sort forste
+| table src_ip src_mac kjent pakker forste siste
+| rename src_ip AS "Avsender", src_mac AS "MAC", kjent AS "I baselinen", pakker AS "Pakker", forste AS "Første", siste AS "Siste"]]></query>
+          <earliest>$vis.earliest$</earliest>
+          <latest>$vis.latest$</latest>
+        </search>
+        <option name="drilldown">none</option>
+        <format type="color" field="I baselinen">
+          <colorPalette type="map">{"Nei":#DC4E41,"Ja":#53A051}</colorPalette>
+        </format>
+      </table>
+    </panel>
+  </row>
+
+  <!-- Hvert 10-sekundersvindu der strømmen (eller avsenderen) hadde avvik, i hele tidsrommet fra Avvik. -->
+  <row depends="$strom$">
+    <panel>
+      <title>Avvik for $strom$</title>
+      <table>
+        <search base="avvik">
+          <query>eval strom=src_ip." → ".dst_ip.":".dst_port." (".len." byte)"
+| where strom=="$strom$" OR "Alt fra ".src_ip=="$strom$"
+| sort _time
+| eval tid=strftime(_time, "%d.%m %H:%M:%S")
+| table tid type strom malt normal forklaring
+| rename tid AS "Tid", type AS "Avvik", strom AS "Strøm", malt AS "Målt", normal AS "Normalt", forklaring AS "Forklaring"</query>
+        </search>
+        <option name="drilldown">none</option>
+        <option name="count">10</option>
+      </table>
+    </panel>
+  </row>
+</dashboard>

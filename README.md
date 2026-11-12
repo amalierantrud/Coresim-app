@@ -35,12 +35,14 @@ coresim-app/
 │   │       ├── nav/default.xml          menyen i appen
 │   │       └── views/
 │   │           ├── oversikt.xml         dashboardet Oversikt: trafikken over tid
-│   │           └── avvik.xml            dashboardet Avvik: avvik fra baselinen
+│   │           ├── avvik.xml            dashboardet Avvik: avvik fra baselinen
+│   │           └── detaljer.xml         Detaljer: ett angrep eller én strøm, trafikken mot normalen og tiltak
 │   └── lookups/
 │       ├── baseline_trafikk.csv         fasiten: normal MAC og rate per strøm, fra baselinen
-│       ├── angrepstyper.csv             navn, alvorlighet, MITRE og tiltak for hvert mulig angrep
-│       └── mitre_ics.csv                MITRE ATT&CK for ICS: taktikk, beskrivelse, MITRE sine tiltak, lenke
-├── tools/lag_mitre_ics.py               lager mitre_ics.csv fra MITRE sitt eget repo
+│       ├── angrepstyper.csv             navn, alvorlighet, MITRE, første steg og tiltak for hvert mulig angrep
+│       ├── mitre_ics.csv                MITRE ATT&CK for ICS: taktikk, beskrivelse, MITRE sine tiltak, lenke
+│       └── mitre_tiltak.csv             MITRE sine tiltak per teknikk, med MITRE sin tekst om hvordan de hjelper
+├── tools/lag_mitre_ics.py               lager mitre_ics.csv og mitre_tiltak.csv fra MITRE sitt eget repo
 ├── tests/test_deteksjon.py              tester for reglene (python -m pytest tests)
 ├── docs/data.md                         kartlegging av dataene på coresim
 ├── splunk-dev/                          din lokale Splunk (ikke i Git, se under)
@@ -50,7 +52,10 @@ coresim-app/
 ## Deteksjonen
 
 Trafikken deles i 10-sekundersvinduer per strøm (avsender, mottaker, port, størrelse) og sammenlignes med
-`lookups/baseline_trafikk.csv`. Reglene står i `bin/deteksjon.py`, og grensene (`FAKTOR`, `MARGIN`) øverst i filen.
+`lookups/baseline_trafikk.csv`. Reglene står i `bin/deteksjon.py`, og grensene (`Z_GRENSE`, `MIN_STD`) øverst i filen.
+
+Raten vurderes med z-score: `(pakker - snitt) / max(standardavvik, MIN_STD)`. Med `Z_GRENSE = 4` og `MIN_STD = 2` må en strøm
+være mer enn 8 pakker fra snittet i et vindu. Grensene er satt ut fra én kort baseline og ett opptak.
 
 Diagnosen ser på alle avvikene i samme vindu og tolker dem som mulige angrep:
 
@@ -59,6 +64,7 @@ Diagnosen ser på alle avvikene i samme vindu og tolker dem som mulige angrep:
 | Feil MAC på en kjent strøm | Spoofing |
 | Minst halvparten av de faste strømmene over rate-grensen | Flooding |
 | Én strøm over rate-grensen, riktig MAC | Økt sending |
+| Fast strøm under rate-grensen, men ikke helt borte | Redusert sending |
 | Alle faste strømmer fra én avsender mangler | Enhet sender ikke |
 | Noen faste strømmer fra en avsender mangler | Strøm borte |
 | Ny strøm fra en avsender som ikke er i baselinen | Ukjent enhet |
@@ -66,15 +72,25 @@ Diagnosen ser på alle avvikene i samme vindu og tolker dem som mulige angrep:
 | Ny strøm fra en kjent avsender | Ny forbindelse |
 
 Navn, alvorlighet, MITRE ATT&CK for ICS og tiltak står i `lookups/angrepstyper.csv` og kan endres uten å røre koden.
-Taktikk, MITRE sine tiltak og lenke hentes fra `lookups/mitre_ics.csv`. Den lages på nytt med `python tools/lag_mitre_ics.py`
-når MITRE kommer med en ny versjon. En test sjekker at alle MITRE-numrene i `angrepstyper.csv` fortsatt finnes,
-siden MITRE av og til erstatter teknikker (i versjon 20 ble T0855 og T0856 til T1692.001 og T1692.002).
+Hvert angrep har to slags tiltak:
+
+- **Første steg** (`forste_steg`): hva operatøren gjør med en gang. Dette er våre egne råd, ikke fra MITRE.
+- **Tiltak** (`tiltak`): MITRE sine tiltak (mitigations) mot teknikken, oppsummert på norsk med M-nummer, for eksempel M0802.
+  Siden Detaljer viser også MITRE sin egen tekst for hvert tiltak fra `lookups/mitre_tiltak.csv`.
+
+Taktikk og lenke hentes fra `lookups/mitre_ics.csv`. Begge MITRE-filene lages på nytt med `python tools/lag_mitre_ics.py`
+når MITRE kommer med en ny versjon. Testene sjekker at alle MITRE-numrene i `angrepstyper.csv` fortsatt finnes,
+siden MITRE av og til erstatter teknikker (i versjon 20 ble T0855 og T0856 til T1692.001 og T1692.002), og at hvert
+M-nummer i `tiltak` er et tiltak MITRE oppgir mot akkurat den teknikken.
 
 - **I Splunk:** dashboardet Avvik bruker kommandoene `| finnavvik` og `| diagnoser`.
 - **Fra kommandolinja:** `python ot_attack_detection/bin/deteksjon.py testdata/capture.csv`
 - **Tester:** `python -m pytest tests`
 
-Kjent begrensning: `capture.pcap` har hver pakke omtrent fem ganger, så «For høy rate» slår ut på alt i det opptaket.
+Kjente begrensninger:
+
+- `capture.pcap` har hver pakke omtrent fem ganger, så «For høy rate» slår ut på alt i det opptaket. Bruk `capture_2026-09-29_uten_kopier.pcap`.
+- En angriper som bruker riktig MAC og holder seg innenfor 8 pakker per vindu fra snittet, gir ingen alarm. Dette er med vilje dokumentert i testene.
 
 ## Kom i gang
 

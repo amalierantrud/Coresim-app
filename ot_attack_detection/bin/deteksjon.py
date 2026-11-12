@@ -5,7 +5,7 @@ Splunk-kommandoene | finnavvik (finnavvik.py) og | diagnoser (diagnoser.py) bruk
 og den kan kjøres alene fra kommandolinja.
 
 To trinn:
-1. sammenlign(): finner avvik per strøm per vindu (ny strøm, feil MAC, for høy rate, strøm mangler).
+1. sammenlign(): finner avvik per strøm per vindu (ny strøm, feil MAC, for høy eller lav rate, strøm mangler).
 2. diagnoser(): ser på alle avvikene i samme vindu og gir mulige angrep (spoofing, flooding osv.).
    Navn, alvorlighet og MITRE-teknikk for hvert angrep står i lookups/angrepstyper.csv.
 
@@ -21,20 +21,23 @@ from collections import defaultdict
 
 VINDU_SEKUNDER = 10
 
-# For høy rate: grensen er det høyeste baselinen hadde i et vindu, ganger FAKTOR,
-# men minst MARGIN pakker over. Margin hindrer alarm på små strømmer som hopper mellom 0 og 3.
-FAKTOR = 1.5
-MARGIN = 5
+# Rate: en strøm er et avvik når den er minst Z_GRENSE standardavvik fra snittet i baselinen (z-score).
+# Mange strømmer har standardavvik 0, så MIN_STD er det minste vi regner med. Ellers ville én pakke gitt alarm.
+# Med 4 og 2 må strømmen være mer enn 8 pakker fra snittet i et vindu.
+Z_GRENSE = 4
+MIN_STD = 2
 
 NY_STROM = "Ny strøm"
 FEIL_MAC = "Feil MAC"
 FOR_HOY_RATE = "For høy rate"
+FOR_LAV_RATE = "For lav rate"
 STROM_MANGLER = "Strøm mangler"
 
 # Mulige angrep. Kodene slås opp i lookups/angrepstyper.csv for navn, alvorlighet og MITRE.
 SPOOFING = "spoofing"              # kjent strøm sendt fra feil MAC
 FLOODING = "flooding"              # mange faste strømmer over rate-grensen samtidig
 OKT_SENDING = "okt_sending"        # én strøm over grensen, men fra riktig MAC
+REDUSERT_SENDING = "redusert_sending"  # fast strøm under grensen, men ikke helt borte
 ENHET_STILLE = "enhet_stille"      # alle faste strømmer fra én avsender mangler
 STROM_BORTE = "strom_borte"        # noen, men ikke alle, faste strømmer fra en avsender mangler
 UKJENT_ENHET = "ukjent_enhet"      # ny strøm fra en avsender som ikke finnes i baselinen
@@ -60,6 +63,7 @@ def les_baseline(sti):
             baseline[strom_nokkel(rad)] = {
                 "src_mac": rad["src_mac"],
                 "snitt_10s": float(rad["snitt_10s"]),
+                "stdev_10s": float(rad["stdev_10s"]),
                 "min_10s": float(rad["min_10s"]),
                 "maks_10s": float(rad["maks_10s"]),
             }
@@ -90,9 +94,9 @@ def tell_vinduer(pakker, sekunder=VINDU_SEKUNDER):
     return vinduer
 
 
-def rate_grense(fasit):
-    """Høyeste normale antall pakker i et vindu før strømmen regnes som for høy."""
-    return max(fasit["maks_10s"] * FAKTOR, fasit["maks_10s"] + MARGIN)
+def z_score(n, fasit):
+    """Hvor mange standardavvik n pakker er fra snittet i baselinen. Positiv over snittet, negativ under."""
+    return (n - fasit["snitt_10s"]) / max(fasit["stdev_10s"], MIN_STD)
 
 
 def sjekk_vindu(vindu, baseline):
@@ -110,10 +114,29 @@ def sjekk_vindu(vindu, baseline):
         avvik.append(_avvik(vindu, FEIL_MAC, " ".join(fremmede), fasit["src_mac"],
                             "Sendt fra en annen MAC enn i baselinen"))
 
-    grense = rate_grense(fasit)
-    if vindu["n"] > grense:
+    z = z_score(vindu["n"], fasit)
+    if z > Z_GRENSE:
         avvik.append(_avvik(vindu, FOR_HOY_RATE, vindu["n"], fasit["snitt_10s"],
-                            "Over grensen på %g pakker per %d s" % (grense, VINDU_SEKUNDER)))
+                            "z = %.1f, grensen er %d" % (z, Z_GRENSE)))
+    return avvik
+
+
+def finn_lav_rate(vinduer, baseline):
+    """Finner faste strømmer som sender for lite, men ikke er helt borte (det tar finn_manglende).
+
+    Bare strømmer med min_10s over 0 tas med, siden de andre er borte i perioder.
+    Første og siste vindu hoppes over, fordi de bare er delvis med og ellers ville sett ut som et fall.
+    """
+    tider = sorted({v["_time"] for v in vinduer})
+    avvik = []
+    for vindu in vinduer:
+        if vindu["_time"] in tider[1:-1]:
+            fasit = baseline.get(strom_nokkel(vindu))
+            if fasit and fasit["min_10s"] > 0:
+                z = z_score(vindu["n"], fasit)
+                if z < -Z_GRENSE:
+                    avvik.append(_avvik(vindu, FOR_LAV_RATE, vindu["n"], fasit["snitt_10s"],
+                                        "z = %.1f, grensen er -%d" % (z, Z_GRENSE)))
     return avvik
 
 
@@ -146,6 +169,7 @@ def sammenlign(vinduer, baseline):
     avvik = []
     for vindu in vinduer:
         avvik.extend(sjekk_vindu(vindu, baseline))
+    avvik.extend(finn_lav_rate(vinduer, baseline))
     avvik.extend(finn_manglende(vinduer, baseline))
     return sorted(avvik, key=lambda a: (a["_time"], a["type"], a["src_ip"], a["dst_ip"], a["dst_port"]))
 
@@ -201,6 +225,10 @@ def diagnoser(avvik, baseline):
                 resultat.append(_diagnose(tid, OKT_SENDING, a["src_ip"], _strom_tekst(s),
                                           "%s pakker per %d s, normalt %s" % (a["malt"], VINDU_SEKUNDER, a["normal"]),
                                           1))
+
+        for a in av_type[FOR_LAV_RATE]:
+            resultat.append(_diagnose(tid, REDUSERT_SENDING, a["src_ip"], _strom_tekst(strom_nokkel(a)),
+                                      "%s pakker per %d s, normalt %s" % (a["malt"], VINDU_SEKUNDER, a["normal"]), 1))
 
         # Manglende strømmer, samlet per avsender: alle borte betyr at enheten er stille.
         mangler = defaultdict(list)
