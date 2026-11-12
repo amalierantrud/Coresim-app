@@ -27,7 +27,7 @@ coresim-app/
 │   ├── default/
 │   │   ├── app.conf                     navn, beskrivelse og versjon
 │   │   ├── commands.conf                registrerer finnavvik og diagnoser
-│   │   ├── indexes.conf                 indeksene baseline og capture
+│   │   ├── indexes.conf                 indeksene baseline og opptak (bare lokalt)
 │   │   ├── macros.conf                  ot_data: hvor trafikken hentes fra (lokalt eller coresim)
 │   │   ├── props.conf                   hvordan Splunk leser baseline-, angreps- og coresim-dataene
 │   │   ├── savedsearches.conf           «Lag baseline»: lager lookups/baseline_trafikk.csv
@@ -40,8 +40,10 @@ coresim-app/
 │       ├── baseline_trafikk.csv         fasiten: normal MAC og rate per strøm, fra baselinen
 │       ├── angrepstyper.csv             navn, alvorlighet, MITRE og tiltak for hvert mulig angrep
 │       └── mitre_ics.csv                MITRE ATT&CK for ICS: taktikk, beskrivelse, MITRE sine tiltak, lenke
-├── tools/lag_mitre_ics.py               lager mitre_ics.csv fra MITRE sitt eget repo
-├── tests/test_deteksjon.py              tester for reglene (python -m pytest tests)
+├── tools/
+│   ├── pcap_til_splunk.py               gjør en pcap om til CSV for Splunk og fjerner kopier av pakker
+│   └── lag_mitre_ics.py                 lager mitre_ics.csv fra MITRE sitt eget repo
+├── tests/                               tester for reglene og kopifjerningen (python -m pytest tests)
 ├── docs/data.md                         kartlegging av dataene på coresim
 ├── splunk-dev/                          din lokale Splunk (ikke i Git, se under)
 └── testdata/                            pcap- og datafiler fra NORCE (ikke i Git)
@@ -54,16 +56,16 @@ Trafikken deles i 10-sekundersvinduer per strøm (avsender, mottaker, port, stø
 
 Diagnosen ser på alle avvikene i samme vindu og tolker dem som mulige angrep:
 
-| Når | Mulig angrep |
-| --- | --- |
-| Feil MAC på en kjent strøm | Spoofing |
-| Minst halvparten av de faste strømmene over rate-grensen | Flooding |
-| Én strøm over rate-grensen, riktig MAC | Økt sending |
-| Alle faste strømmer fra én avsender mangler | Enhet sender ikke |
-| Noen faste strømmer fra en avsender mangler | Strøm borte |
-| Ny strøm fra en avsender som ikke er i baselinen | Ukjent enhet |
-| Minst 5 nye mottaker/port-par fra én avsender | Skanning |
-| Ny strøm fra en kjent avsender | Ny forbindelse |
+| Når                                                      | Mulig angrep      |
+| -------------------------------------------------------- | ----------------- |
+| Feil MAC på en kjent strøm                               | Spoofing          |
+| Minst halvparten av de faste strømmene over rate-grensen | Flooding          |
+| Én strøm over rate-grensen, riktig MAC                   | Økt sending       |
+| Alle faste strømmer fra én avsender mangler              | Enhet sender ikke |
+| Noen faste strømmer fra en avsender mangler              | Strøm borte       |
+| Ny strøm fra en avsender som ikke er i baselinen         | Ukjent enhet      |
+| Minst 5 nye mottaker/port-par fra én avsender            | Skanning          |
+| Ny strøm fra en kjent avsender                           | Ny forbindelse    |
 
 Navn, alvorlighet, MITRE ATT&CK for ICS og tiltak står i `lookups/angrepstyper.csv` og kan endres uten å røre koden.
 Taktikk, MITRE sine tiltak og lenke hentes fra `lookups/mitre_ics.csv`. Den lages på nytt med `python tools/lag_mitre_ics.py`
@@ -71,10 +73,11 @@ når MITRE kommer med en ny versjon. En test sjekker at alle MITRE-numrene i `an
 siden MITRE av og til erstatter teknikker (i versjon 20 ble T0855 og T0856 til T1692.001 og T1692.002).
 
 - **I Splunk:** dashboardet Avvik bruker kommandoene `| finnavvik` og `| diagnoser`.
-- **Fra kommandolinja:** `python ot_attack_detection/bin/deteksjon.py testdata/capture.csv`
+- **Fra kommandolinja:** `python ot_attack_detection/bin/deteksjon.py testdata/capture_unik.csv`
 - **Tester:** `python -m pytest tests`
 
-Kjent begrensning: `capture.pcap` har hver pakke omtrent fem ganger, så «For høy rate» slår ut på alt i det opptaket.
+Bruk den rensede `capture_unik.csv` (se Testdata). Den gamle `capture.csv` har hver pakke fem ganger,
+og da slår «For høy rate» og «Flooding» ut på alt.
 
 ## Kom i gang
 
@@ -160,14 +163,14 @@ _OT Attack Detection_ skal ligge i app-menyen øverst til venstre, og under _Set
 
 Alle kommandoene kjøres i `coresim-app/splunk-dev`.
 
-| Hva | Kommando |
-| --- | --- |
-| Stoppe (alt beholdes) | `docker compose stop` |
-| Starte igjen | `docker compose start` |
-| Starte på nytt (etter endring i en `.conf`-fil) | `docker compose restart` |
-| Etter endring i `docker-compose.yml` | `docker compose up -d` |
-| Se status | `docker ps` (vent på `healthy`) |
-| Følge loggen live | `docker compose logs -f splunk` |
+| Hva                                             | Kommando                        |
+| ----------------------------------------------- | ------------------------------- |
+| Stoppe (alt beholdes)                           | `docker compose stop`           |
+| Starte igjen                                    | `docker compose start`          |
+| Starte på nytt (etter endring i en `.conf`-fil) | `docker compose restart`        |
+| Etter endring i `docker-compose.yml`            | `docker compose up -d`          |
+| Se status                                       | `docker ps` (vent på `healthy`) |
+| Følge loggen live                               | `docker compose logs -f splunk` |
 
 > **Pass på:** `docker compose down -v` sletter **alle** lokale data (indekser, opplastede testdata, brukere).
 
@@ -176,22 +179,27 @@ Alle kommandoene kjøres i `coresim-app/splunk-dev`.
 Den lokale Splunk-en er tom. Dataene ligger ikke i Git, så få filene fra gruppa og legg dem i `testdata/`.
 Start Splunk på nytt først, så indeksene og sourcetypene fra appen finnes. Last så opp med _Settings → Add Data → Upload_:
 
-| Fil | Hva | Sourcetype | Indeks |
-| --- | --- | --- | --- |
-| `baseline_clean.json` | Normaltrafikk fra NORCE, 21.10.2026 | `baseline_json` | `baseline` |
-| `capture.csv` | Angrepsopptaket fra 29.09.2026 | `capture_csv` | `capture` |
+| Fil                   | Hva                                         | Sourcetype      | Indeks     |
+| --------------------- | ------------------------------------------- | --------------- | ---------- |
+| `baseline_clean.json` | Normaltrafikk fra NORCE, 21.10.2026         | `baseline_json` | `baseline` |
+| `capture_unik.csv`    | Angrepsopptaket fra 29.09.2026, uten kopier | `capture_csv`   | `opptak`   |
 
-`capture.csv` lages fra `capture.pcap` med tshark (Wireshark):
+Et opptak (pcap) gjøres om til CSV med `tools/pcap_til_splunk.py` (krever Wireshark):
 
-```powershell
-& "C:\Program Files\Wireshark\tshark.exe" -r capture.pcap -n -T fields -E header=n -E separator=, -E occurrence=f -e frame.time_epoch -e eth.src -e ip.src -e ip.dst -e udp.dstport -e udp.length -e frame.protocols | Out-File -Encoding ascii capture.csv
+```bash
+python tools/pcap_til_splunk.py testdata/capture.pcap -o testdata/capture_unik.csv
 ```
 
-Last opp hver fil bare én gang, ellers blir pakkene dobbelt opp.
+Skriptet fjerner kopier av pakker. `capture.pcap` har nesten hver pakke fem ganger, så uten dette blir all
+pakkerate fem ganger for høy. Spoofingen sender samme pakke om og om igjen; de gjentakelsene er angrepet og beholdes.
+Hvordan kopiene skilles fra angrepet, står øverst i skriptet.
+
+Last opp hver fil bare én gang, ellers blir pakkene dobbelt opp. Den gamle indeksen `capture` (med kopiene) brukes
+ikke lenger og kan slettes under _Settings → Indexes_.
 
 ## Pakke appen til coresim
 
-Dashboardet henter pakkene med makroen `` `ot_data` `` (`default/macros.conf`). Den søker i både `index=capture` (lokalt)
+Dashboardet henter pakkene med makroen `` `ot_data` `` (`default/macros.conf`). Den søker i både `index=opptak` (lokalt)
 og `index=anomaly_detection` (coresim). Hver Splunk har bare én av dem, så appen virker likt begge steder uten endringer.
 
 Kjør i `coresim-app`:
@@ -201,7 +209,7 @@ mkdir -Force dist; tar -czf dist/ot_attack_detection.tgz --exclude=local --exclu
 ```
 
 - `local/` og `local.meta` er dine egne innstillinger og skal ikke være med.
-- `indexes.conf` er utelatt, så appen ikke lager indeksene `baseline` og `capture` på NORCE sin Splunk.
+- `indexes.conf` er utelatt, så appen ikke lager indeksene `baseline` og `opptak` på NORCE sin Splunk.
 
 Installer med _Apps → Manage Apps → Install app from file_ (krever admin på coresim).
 Velg et kort tidsrom på coresim, for eksempel én time: `anomaly_detection` har over 100 millioner pakker.

@@ -21,6 +21,10 @@ from splunklib.searchcommands import Configuration, Option, ReportingCommand, di
 
 import deteksjon  # noqa: E402
 
+# Sperre mot for store søk. Alle vinduene holdes i minnet, og på coresim (over 100 millioner pakker) kan
+# All time gi millioner av vinduer. 300 000 tilsvarer omtrent ett døgn med trafikken der.
+MAKS_VINDUER = 300000
+
 
 @Configuration(requires_preop=False)
 class FinnAvvikCommand(ReportingCommand):
@@ -49,6 +53,9 @@ class FinnAvvikCommand(ReportingCommand):
                 "n": int(float(r.get("n") or 0)),
                 "src_mac": r.get("src_mac") or "",
             })
+            if len(self._vinduer) > MAKS_VINDUER:
+                raise RuntimeError("For mange vinduer (over %d). Velg et kortere tidsrom, for eksempel én time."
+                                   % MAKS_VINDUER)
         if not self._finished:
             return
 
@@ -57,4 +64,4 @@ class FinnAvvikCommand(ReportingCommand):
             yield avvik
 
 
-dispatch(FinnAvvikCommand,sys.argv, sys.stdin, sys.stdout, __name__)
+dispatch(FinnAvvikCommand, sys.argv, sys.stdin, sys.stdout, __name__)
